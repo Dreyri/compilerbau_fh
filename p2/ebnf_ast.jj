@@ -56,5 +56,5 @@ Exp F(): {Exp e; Token n;}
 {
   n=<NUM> {return new Num(Integer.parseInt(n.image));}
 |
-  "(" e=E() ")" {return e;}
+  "(" e=A() ")" {return e;}
 }
