@@ -1,0 +1,10 @@
+final int n = 10;
+int last = 0, prev = 1, count = 0, res = 0;
+{
+	while count < n {
+		res = last + prev;
+		prev = last;
+		last = res;
+		count = count + 1;
+	}
+}
