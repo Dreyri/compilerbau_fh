@@ -5,3 +5,7 @@ if bye > 50
 {
     print(something);
 }
+else
+{
+    print(somethingelse);
+}
