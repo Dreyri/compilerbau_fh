@@ -4,7 +4,7 @@ public class Parser {
     public static void main(String[] args)
     {
         try {
-	    new Parser(new java.io.StringReader(args[0])).S();
+	    new Parser(new java.io.FileReader(args[0])).S();
 	    System.out.println("Syntax ok");
 	}
 	catch(Throwable e)
