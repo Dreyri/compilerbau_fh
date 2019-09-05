@@ -1,0 +1,124 @@
+PARSER_BEGIN(Parser)
+
+public class Parser {
+    public static void main(String[] args)
+    {
+        try {
+	    new Parser(new java.io.StringReader(args[0])).S();
+	    System.out.println("Syntax ok");
+	}
+	catch(Throwable e)
+	{
+	    System.out.println("Syntax error: " + e.getMessage());
+	}
+    }
+}
+
+PARSER_END(Parser)
+
+
+SKIP: {
+    " "
+  | "\t"
+  | "\r"
+  | "\n"
+}
+
+
+TOKEN: {
+    "(" | ")" |
+
+    <FINAL: "final">
+  | <INT: "int">
+  | <IF: "if">
+  | <WHILE: "while">
+  | <PRINT: "print">
+
+  | <OP_MUL_DIV: "*" | "/">
+  | <OP_ADD_MIN: "+" | "-">
+  | <NUM: "0" | (["1"-"9"](["0"-"9"])*)>
+  | <#DIGIT: ["0"-"9"]>
+  | <#LLETTER: ["a"-"z"]>
+  | <#ULETTER: ["A"-"Z"]>
+  | <#LETTER: <LLETTER> | <ULETTER>>
+  | <#ALPHANUM: <DIGIT> | <LETTER>>
+  | <IDENT: <LLETTER> (<ALPHANUM>)*>
+
+
+ 
+  | <OP_ASSIGN: "=">
+  | <SCOLON: ";">
+  | <COMMA: ",">
+  | <OP_COMP: "<" | ">">
+}
+
+void S():
+{}
+{
+    (CDecl())? (VDecl())? (Statement()) <EOF>
+}
+
+// constant decl
+void CDecl():
+{}
+{
+    <FINAL> <INT> (CAssign()) (<COMMA> CAssign())* <SCOLON>
+}
+
+void VDecl():
+{}
+{
+    <INT> VAssign() (<COMMA> VAssign())* <SCOLON>
+}
+
+// const assign
+// must be initialized
+void CAssign():
+{}
+{
+    <IDENT> <OP_ASSIGN> <NUM>
+}
+
+// var assign
+// can be uninitialized
+void VAssign():
+{}
+{
+    <IDENT> (<OP_ASSIGN> <NUM>)?
+}
+
+void Expression():
+{}
+{
+    Product() (<OP_ADD_MIN> Product())*
+}
+
+void Product():
+{}
+{
+    Term() (<OP_MUL_DIV> Term())*
+}
+
+void Term():
+{}
+{
+    <NUM>
+  | <IDENT>
+  | ("(" Expression() ")")
+}
+
+void Cond():
+{}
+{
+    Expression() <OP_COMP> Expression()
+}
+
+void Statement():
+{}
+{
+    (<IDENT> <OP_ASSIGN> Expression() <SCOLON>)
+  | ("print" "(" Expression() ")" <SCOLON>) 
+  | ("{" (Statement())* "}")
+  | ("if" Cond() Statement()) // TODO else case
+  | ("while" Cond() Statement())
+}

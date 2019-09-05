@@ -1,0 +1,7 @@
+final int something = 5432, somethingelse = 123;
+int hello = 12, world = 34, bye = 56;
+
+if bye > 50
+{
+    print(something);
+}
