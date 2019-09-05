@@ -4,8 +4,21 @@ int hello = 12, world = 34, bye = 56;
 if bye > 50
 {
     print(something);
+
+    do {
+        print(40);
+    } while 1 > 1;
 }
 else
 {
     print(somethingelse);
+
+    switch hello {
+        case 0:
+        {
+
+        }
+        default:
+            print(bye);
+    }
 }

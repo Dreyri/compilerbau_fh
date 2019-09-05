@@ -307,6 +307,92 @@ class WhileStmt extends Stmt {
     }
 }
 
+class DoWhileStmt extends Stmt {
+    Stmt statement;
+    CompExpr cond;
+
+    DoWhileStmt(Stmt s, CompExpr c) {
+        statement = s;
+        cond = c;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"do_while_stmt\", \"statement\": ");
+        statement.printJson();
+        System.out.println(", \"condition\": ");
+        cond.printJson();
+        System.out.println("}");
+    }
+}
+
+class CaseStmt extends Stmt {
+    int value;
+    Stmt statement;
+
+    CaseStmt(int v, Stmt s) {
+        value = v;
+        statement = s;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"case_stmt\", \"number\": " + value + ", \"statement\": ");
+        statement.printJson();
+        System.out.println("}");
+    }
+}
+
+class DefaultStmt extends Stmt {
+    Stmt statement;
+
+    DefaultStmt(Stmt s) {
+        statement = s;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"default_stmt\", \"statement\": ");
+        statement.printJson();
+        System.out.println("}");
+    }
+}
+
+class SwitchStmt extends Stmt {
+    String ident;
+    ArrayList<CaseStmt> cases = new ArrayList<CaseStmt>();
+    public DefaultStmt defaultStmt = null;
+
+    SwitchStmt(String id) {
+        ident = id;
+    }
+
+    void add(CaseStmt cs) {
+        cases.add(cs);
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"switch_stmt\", \"identifier\": \"" + ident + "\", \"cases\": [");
+
+        for (int i = 0; i < (cases.size() - 1); ++i)
+        {
+            cases.get(i).printJson();
+            System.out.println(",");
+        }
+
+        if (cases.size() > 0) {
+            cases.get(cases.size() - 1).printJson();
+        }
+
+        System.out.println("]");
+
+        if (defaultStmt != null)
+        {
+            System.out.println(", \"default\": ");
+            defaultStmt.printJson();
+        }
+
+        System.out.println("}");
+    }
+}
+
 PARSER_END(Parser)
 
 
@@ -327,6 +413,13 @@ TOKEN: {
   | <ELSE: "else">
   | <WHILE: "while">
   | <PRINT: "print">
+  // uebung 32
+  | <DO: "do">
+  | <SWITCH: "switch">
+  | <CASE: "case">
+  | <CASE_DEFAULT: "default">
+  | <BREAK: "break">
+  | <COLON: ":">
 
   | <OP_MUL_DIV: "*" | "/">
   | <OP_ADD_MIN: "+" | "-">
@@ -396,9 +489,16 @@ Expr Product():
 Expr Term():
 {Token n; Expr e;}
 {
-    (n=<NUM> {return new NumExpr(Integer.parseInt(n.image));})
+    // (n=<NUM> {return new NumExpr(Integer.parseInt(n.image));})
+    (e=LitNum() {return e;})
   | (n=<IDENT> {return new IdentExpr(n.image);})
   | ("(" e=Expression() ")" {return e;})
+}
+
+NumExpr LitNum():
+{Token n;}
+{
+    n=<NUM> {return new NumExpr(Integer.parseInt(n.image));}
 }
 
 CompExpr Cond():
@@ -408,13 +508,22 @@ CompExpr Cond():
 }
 
 Stmt Statement():
-{Token id; CompExpr ce; Expr e; Stmt s; Stmt s2; BlockStmt bs = new BlockStmt();}
+{Token id; Token n; CompExpr ce; Expr e; Stmt s; Stmt s2; BlockStmt bs = new BlockStmt(); SwitchStmt ss; DefaultStmt ds;}
 {
     (id=<IDENT> <OP_ASSIGN> e=Expression() <SCOLON>)
-  | ("print" "(" e=Expression() ")" <SCOLON> {return new PrintStmt(e);}) 
+  | (<PRINT> "(" e=Expression() ")" <SCOLON> {return new PrintStmt(e);}) 
   | ("{" (s=Statement() {bs.add(s);})* "}" {return bs;})
-  | ("if" ce=Cond() s=Statement() s2=OptElse() {return new IfStmt(ce, s, s2);}) // TODO else case
-  | ("while" ce=Cond() s=Statement() {return new WhileStmt(ce, s);})
+  | (<IF> ce=Cond() s=Statement() s2=OptElse() {return new IfStmt(ce, s, s2);}) // TODO else case
+  | (<WHILE> ce=Cond() s=Statement() {return new WhileStmt(ce, s);})
+  // aufgabe 32
+  | (<DO> s=Statement() <WHILE> ce=Cond() <SCOLON> {return new DoWhileStmt(s, ce);})
+  | (<SWITCH> id=<IDENT> "{" {ss=new SwitchStmt(id.image);} (<CASE> n=<NUM> <COLON> s=Statement() {ss.add(new CaseStmt(Integer.parseInt(n.image), s));})* ds=OptSwitchDefault() "}" {ss.defaultStmt = ds; return ss;})
+}
+
+DefaultStmt OptSwitchDefault():
+{Stmt s;}
+{
+    (<CASE_DEFAULT> <COLON> s=Statement() {return new DefaultStmt(s);})
 }
 
 Stmt Empty():
