@@ -335,8 +335,14 @@ class CaseStmt extends Stmt {
     }
 
     public void printJson() {
-        System.out.println("{ \"type\": \"case_stmt\", \"number\": " + value + ", \"statement\": ");
-        statement.printJson();
+        System.out.println("{ \"type\": \"case_stmt\", \"number\": " + value);
+
+        if (statement != null)
+        {
+            System.out.println(", \"statement\": ");
+            statement.printJson();
+        }
+        
         System.out.println("}");
     }
 }
@@ -508,7 +514,7 @@ CompExpr Cond():
 }
 
 Stmt Statement():
-{Token id; Token n; CompExpr ce; Expr e; Stmt s; Stmt s2; BlockStmt bs = new BlockStmt(); SwitchStmt ss; DefaultStmt ds;}
+{Token id; Token n; CompExpr ce; Expr e; Stmt s = null; Stmt s2; BlockStmt bs = new BlockStmt(); SwitchStmt ss; DefaultStmt ds;}
 {
     (id=<IDENT> <OP_ASSIGN> e=Expression() <SCOLON>)
   | (<PRINT> "(" e=Expression() ")" <SCOLON> {return new PrintStmt(e);}) 
@@ -517,7 +523,7 @@ Stmt Statement():
   | (<WHILE> ce=Cond() s=Statement() {return new WhileStmt(ce, s);})
   // aufgabe 32
   | (<DO> s=Statement() <WHILE> ce=Cond() <SCOLON> {return new DoWhileStmt(s, ce);})
-  | (<SWITCH> id=<IDENT> "{" {ss=new SwitchStmt(id.image);} (<CASE> n=<NUM> <COLON> s=Statement() {ss.add(new CaseStmt(Integer.parseInt(n.image), s));})* ds=OptSwitchDefault() "}" {ss.defaultStmt = ds; return ss;})
+  | (<SWITCH> id=<IDENT> "{" {ss=new SwitchStmt(id.image);} (<CASE> n=<NUM> <COLON> (s=Statement())? {ss.add(new CaseStmt(Integer.parseInt(n.image), s)); s = null;})* ds=OptSwitchDefault() "}" {ss.defaultStmt = ds; return ss;})
 }
 
 DefaultStmt OptSwitchDefault():

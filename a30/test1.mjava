@@ -14,10 +14,12 @@ else
     print(somethingelse);
 
     switch hello {
+        case 15:
         case 0:
         {
 
         }
+        case 1:
         default:
             print(bye);
     }
