@@ -1,0 +1,123 @@
+PARSER_BEGIN(SyntaxChecker)
+
+public class SyntaxChecker {
+    public static void main(String[] args) throws java.io.FileNotFoundException, ParseException
+    {
+	    new SyntaxChecker(new java.io.FileReader(args[0])).S();
+	    System.out.println("Syntax is Okay!");
+	}
+}
+
+PARSER_END(SyntaxChecker)
+
+SKIP: {
+    " "
+  | "\t"
+  | "\r"
+  | "\n"
+}
+
+TOKEN: {
+    "(" | ")"
+  | <OP_MUL_DIV: "*" | "/">
+  | <OP_PLUS_MIN: "+" | "-">
+  | <NUM: "0" | (["1"-"9"](["0"-"9"])*)>
+  | <#DIGIT: ["0"-"9"]>
+  | <#LLETTER: ["a"-"z"]>
+  | <#ULETTER: ["A"-"Z"]>
+  | <#LETTER: <LLETTER> | <ULETTER>>
+  | <#ALPHANUM: <DIGIT> | <LETTER>>
+
+  | <OP_COMP: "<" | ">" | "<=" | ">=" | "==" | "!=">
+  | <OP_ASSIGN: "=">
+  | <WHILE: "while">
+  | <IF: "if">
+  | <ELSE: "else">
+  | <FINAL: "final">
+  | <PRINT: "print">
+  | <INT: "int">
+  | <IDENT: <LLETTER> (<ALPHANUM>)*>
+
+}
+
+void S():
+{}
+{
+    CDecl() VDecl() Statement() <EOF>
+}
+
+void CDecl():
+{}
+{
+    <FINAL> <INT> CAssign() ("," CAssign())* ";"
+}
+
+void VDecl():
+{}
+{
+    <INT> VAssign() ("," VAssign())* ";"
+}
+
+void CAssign():
+{}
+{
+    <IDENT> <OP_ASSIGN> <NUM>
+}
+
+void VAssign():
+{}
+{
+    <IDENT> (<OP_ASSIGN> <NUM>)?
+}
+
+void Expr():
+{}
+{
+    Term() Sum()
+}
+
+void Sum():
+{}
+{
+    (<OP_PLUS_MIN> Term() Sum())?
+}
+
+void Term():
+{}
+{
+    Faktor() Prod()
+}
+
+void Prod():
+{}
+{
+    (<OP_MUL_DIV> Faktor() Prod())?
+}
+
+void Faktor():
+{}
+{
+    <NUM> | <IDENT> | ("(" Expr() ")")
+}
+
+void Cond():
+{}
+{
+    Expr() <OP_COMP> Expr()
+}
+
+void Statement():
+{}
+{
+    (<IDENT> <OP_ASSIGN> Expr() ";")
+  | (<PRINT> "(" Expr() ")" ";")
+  | ("{" (Statement())* "}")
+  | (<IF> Cond() Statement() OptElse())
+  | (<WHILE> Cond() Statement())
+}
+
+void OptElse():
+{}
+{
+    (<ELSE> Statement())
+}

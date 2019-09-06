@@ -1,0 +1,13 @@
+final int a = 0, b = 1, c = 2;
+int d, e = 1;
+{
+   print(e);
+
+   if d <= e {
+
+   }
+   else
+   {
+
+   }
+}
