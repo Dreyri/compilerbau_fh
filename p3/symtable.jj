@@ -1,0 +1,179 @@
+PARSER_BEGIN(SyntaxChecker)
+import java.util.*;
+
+public class SyntaxChecker {
+    public static Hashtable symbols = new Hashtable();
+    public static Hashtable consts = new Hashtable();
+
+    public static void main(String[] args)
+    {
+        try {
+	    new SyntaxChecker(new java.io.StringReader(args[0])).S();
+	    System.out.println("Syntax is okay!");
+
+            System.out.println(symbols.toString());
+            System.out.println("Const: " + consts.toString());
+        } catch (Throwable e) {
+	    System.out.println("Syntax check failed: " + e.getMessage());
+        }
+    }
+}
+
+class VarDecl {
+    public String sym;
+    public int value; 
+
+    public VarDecl(String s, int v) {sym = s; value = v;}
+    public String toString() {return sym + ": " + value;}
+}
+
+PARSER_END(SyntaxChecker)
+
+SKIP: {
+    " "
+  | "\t"
+  | "\r"
+  | "\n"
+}
+
+TOKEN: {
+    "(" | ")" | "," | ";" 
+  | <ASSIGN: "=">
+  | <VARDEC: "int">
+  | <FINAL: "final">
+  | <PRINT: "print">
+  | <OP0: "*" | "/">
+  | <OP1: "+" | "-"> 
+  | <NUM: "0" | (["1"-"9"](["0"-"9"])*)>
+  | <#DIGIT: ["0"-"9"]>
+  | <#LLETTER: ["a"-"z"]>
+  | <#ULETTER: ["A"-"Z"]>
+  | <#LETTER: <LLETTER> | <ULETTER>>
+  | <#ALPHANUM: <DIGIT> | <LETTER>>
+  | <IDENT: <LLETTER> (<ALPHANUM>)*>
+}
+
+void S():
+{ }
+{
+    Stmt() <EOF>
+}
+
+int E():
+{int l = 0, r = 0; Token o = null;}
+{
+    l = T() (o = <OP1> r = T())* {
+        if(o == null)
+            return l;
+
+        if(o.image.equals("+"))
+            return l+r;
+
+        return l-r;
+    }
+}
+
+int T():
+{int l = 0, r = 0; Token o = null;}
+{
+    l = F() (o = <OP0> r = F())* {
+        if(o == null)
+            return l;
+
+        if(o.image.equals("/"))
+            return l/r;
+        
+        return l*r; 
+    }
+}
+
+void Stmt():
+{}
+{
+    LOOKAHEAD(2)
+    <FINAL><VARDEC> Const()
+    | <VARDEC> Ident()
+    | IdentJ()
+    | print() ";"
+    | <EOF>
+}
+
+void print():
+{int exp = 0;}
+{
+      <PRINT> "(" exp = E() ")"
+}
+
+void Const() throws ParseException:
+{Token id; int exp = 0;}
+{
+    id = <IDENT>(<ASSIGN> exp = E())?
+    {
+        if(consts.containsKey(id.image) || symbols.containsKey(id.image)) {
+                throw new ParseException("multiple definition of " + id);
+        }
+
+        consts.put(id.image, exp);
+    } Ident()
+
+    | ";" Stmt()
+    | "," Ident()
+}
+
+
+void Ident() throws ParseException:
+{Token id; int exp = 0;}
+{
+    id = <IDENT>(<ASSIGN> exp = E())? 
+    {
+	if(symbols.containsKey(id.image) || consts.containsKey(id.image)) {
+		throw new ParseException("multiple definition of " + id);     
+	}
+       
+        symbols.put(id.image, exp);
+    } Ident()
+
+    | ";" Stmt()
+    | "," Ident()
+}
+
+void IdentJ() throws ParseException:
+{Token id; int exp = 0;}
+{
+    LOOKAHEAD(2)
+    E() ";" | 
+    id = <IDENT>(<ASSIGN> exp = E()) 
+    {
+        if(consts.containsKey(id.image)) {
+             throw new ParseException(id.image + " is final"); 
+        }
+        if(!symbols.containsKey(id.image) && !symbols.containsKey(id.image)) {
+             throw new ParseException("var " + id.image + " not defined");
+        }
+
+        symbols.put(id.image, exp);
+    } ";" Stmt()
+}
+
+int F():
+{Token num = null; int exp = 0;}
+{
+  num = <NUM> {return Integer.parseInt(num.image);}
+  | "(" exp = E() ")" {return exp;}
+  | num = <IDENT> {
+     if(!symbols.containsKey(num.image)) {
+         if(!consts.containsKey(num.image))
+             throw new ParseException(num.image + " identifier not defined");
+     } else {
+         exp = (int)symbols.get(num.image);
+     }
+   
+     if(!consts.containsKey(num.image)) {
+         if(!symbols.containsKey(num.image))
+             throw new ParseException(num.image + " identifier not defined");
+     } else {
+         exp = (int)consts.get(num.image);
+     }
+     return exp;
+  }
+}
