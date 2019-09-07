@@ -1,0 +1,4 @@
+final int a = 1, b = 2;
+int c = 4;
+
+a * b * c + c

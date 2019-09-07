@@ -1,0 +1,738 @@
+PARSER_BEGIN(Parser)
+
+import java.util.*;
+
+public class Parser {
+
+    public static void main(String[] args) throws java.io.FileNotFoundException, ParseException
+    {
+
+        // Program p = new Parser(new java.io.FileReader(args[0])).S();
+        ExprProgram pe = new Parser(new java.io.FileReader(args[0])).SE();
+
+        SymTable symTable = new SymTable();
+
+        pe.addSymbols(symTable);
+
+        System.out.println(symTable.toString());
+
+        System.out.println(pe.pseudoCompile(symTable));
+    }
+}
+
+enum TAG {
+    CONST,
+    VAR
+}
+
+class Symbol {
+    int value;
+    TAG tag;
+
+    public int address = 0; // only used for vars
+  
+    Symbol(int val, TAG t) {
+        value = val;
+        tag = t;
+    }
+
+    public void setAddress(int adr) {
+        address = adr;
+    }
+
+    public int getVal() {
+        return value;
+    }
+
+    public String loadInstructions() {
+        String res;
+        switch(tag) {
+            case CONST: res = "bipush " + value + " "; break;
+            case VAR: res = "iload " + address + " "; break;
+            default: res = "load-error";
+        }
+        return res;
+    }
+
+    public String toString() {
+        return "(" + value + ", " + tag + ", addr: " + address + ")";
+    }
+}
+
+class SymTable  {
+    Hashtable<String, Symbol> symbols = new Hashtable<String, Symbol>();
+    
+    int addressCounter = 1;
+
+    void addConstant(String id, int val) {
+        symbols.put(id, new Symbol(val, TAG.CONST));
+    }
+
+    void addVariable(String id, int val) {
+        Symbol sym = new Symbol(val, TAG.VAR);
+        symbols.put(id, sym);
+        sym.setAddress(addressCounter++);
+    }
+  
+    Symbol getSymbol(String id) throws ParseException {
+        if(!symbols.containsKey(id)) 
+             throw new ParseException("symbol " + id + " undefined");
+       
+         return (Symbol)symbols.get(id);
+    }
+
+    public String toString() {
+         return symbols.toString();
+    } 
+}
+
+interface AstNode {
+    public void printJson();
+}
+
+interface Symbolizable {
+    public void addSymbols(SymTable table);
+}
+
+interface PseudoCompilable {
+    public String pseudoCompile(SymTable table);
+}
+
+abstract class Decl implements AstNode {}
+
+class ConstDecl extends Decl {
+    public String identifier;
+    public int value;
+
+    ConstDecl(String ident, int v)
+    {
+        identifier = ident;
+        value = v;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"const_decl\", \"name\": \"" + identifier + "\", \"value\": " + value + "}");
+    }
+}
+
+
+class MultiConstDecl extends Decl implements Symbolizable, PseudoCompilable
+{
+    ArrayList<ConstDecl> declarations = new ArrayList<ConstDecl>();
+
+    MultiConstDecl() {}
+
+    void add(ConstDecl cd) {
+        declarations.add(cd);
+    }
+
+    public String pseudoCompile(SymTable table) {
+        return ""; // doesn't emit code
+        // consts get replaced by their value in instructions
+    }
+
+    public void addSymbols(SymTable table)
+    {
+        for (ConstDecl decl : declarations)
+        {
+            table.addConstant(decl.identifier, decl.value);
+        }
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"const_decl_list\", \"decls\": [ ");
+        
+        for (int i = 0; i < (declarations.size() - 1); ++i)
+        {
+            declarations.get(i).printJson();
+            System.out.println(",");
+        }
+
+        if (declarations.size() > 0)
+        {
+            declarations.get(declarations.size() - 1).printJson();
+        }
+
+        System.out.println("] }");
+    }
+}
+
+class VarDecl extends Decl implements PseudoCompilable {
+    public String identifier;
+    public int value;
+
+    VarDecl(String ident, int v)
+    {
+        identifier = ident;
+        value = v;
+    }
+
+    public String pseudoCompile(SymTable table) {
+        // push value to stack.
+        // pull into "index"
+        try {
+            Symbol sym = table.getSymbol(identifier);
+            return "bipush " + sym.getVal() + " istore " + sym.address + " ";
+        } catch(ParseException e) {
+            System.err.println("Could not find symbol \"" + identifier + "\"");
+            return "error";
+        }
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"var_decl\", \"name\": \"" + identifier + "\", \"value\": " + value + "}");
+    }
+}
+
+class MultiVarDecl extends Decl implements Symbolizable, PseudoCompilable
+{
+    ArrayList<VarDecl> declarations = new ArrayList<VarDecl>();
+
+    MultiVarDecl() {}
+
+    void add(VarDecl vd) {
+        declarations.add(vd);
+    }
+
+    public void addSymbols(SymTable table)
+    {
+        for (VarDecl decl : declarations)
+        {
+            table.addVariable(decl.identifier, decl.value);
+        }
+    }
+
+    public String pseudoCompile(SymTable table) {
+        String res = "";
+
+        for (VarDecl decl : declarations) {
+            res += decl.pseudoCompile(table);
+        }
+
+        return res;
+    }
+
+    public void printJson()
+    {
+        System.out.println("{ \"type\": \"var_decl_list\", \"decls\": [ ");
+        
+        for (int i = 0; i < (declarations.size() - 1); ++i)
+        {
+            declarations.get(i).printJson();
+            System.out.println(",");
+        }
+
+        if (declarations.size() > 0)
+        {
+            declarations.get(declarations.size() - 1).printJson();
+        }
+
+        System.out.println("] }");
+    }
+}
+
+class Program implements AstNode {
+    MultiConstDecl cdecl;
+    MultiVarDecl vdecl;
+    Stmt statement;
+
+    Program(MultiConstDecl cd, MultiVarDecl vd, Stmt s) {
+        cdecl = cd;
+        vdecl = vd;
+        statement = s;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"program\", \"const_decls\": ");
+        cdecl.printJson();
+        System.out.println(", \"var_decls\": ");
+        vdecl.printJson();
+        System.out.println(", \"statement\" : ");
+        statement.printJson();
+        System.out.println("}");
+    }
+}
+
+class ExprProgram implements AstNode, Symbolizable, PseudoCompilable {
+    MultiConstDecl cdecl;
+    MultiVarDecl vdecl;
+    Expr expression;
+
+    ExprProgram(MultiConstDecl cd, MultiVarDecl vd, Expr e)
+    {
+        cdecl = cd;
+        vdecl = vd;
+        expression = e;
+    }
+
+    public void addSymbols(SymTable table)
+    {
+        cdecl.addSymbols(table);
+        vdecl.addSymbols(table);
+    }
+
+    public String pseudoCompile(SymTable table) {
+        return vdecl.pseudoCompile(table) + expression.pseudoCompile(table);
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"expr_program\", \"const_decl\": ");
+        cdecl.printJson();
+        System.out.println(", \"var_decls\": ");
+        vdecl.printJson();
+        System.out.println(", \"expression\" : ");
+        expression.printJson();
+        System.out.println("}");
+    }
+}
+
+abstract class Expr implements AstNode, PseudoCompilable {
+    public String pseudoCompile(SymTable table) {
+        return "not-implemented";
+    }
+}
+
+class NumExpr extends Expr implements PseudoCompilable {
+    int value;
+
+    NumExpr(int v) { value = v; }
+
+    public String pseudoCompile(SymTable table) {
+        // simply push the value to the stack
+        return "bipush " + value + " ";
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"numeric_expr\", \"value\": " + value + "}");
+    }
+}
+
+class ArithmeticExpr extends Expr implements PseudoCompilable {
+    String operator;
+    Expr left;
+    Expr right;
+
+    ArithmeticExpr(String op, Expr lhs, Expr rhs)
+    {
+        operator = op;
+        left = lhs;
+        right = rhs;
+    }
+
+    public String pseudoCompile(SymTable table) {
+        String opCode;
+
+        switch (operator) {
+            case "+": opCode = "iadd"; break;
+            case "-": opCode = "isub"; break;
+            case "*": opCode = "imul"; break;
+            case "/": opCode = "idiv"; break;
+            default: opCode = "opcode-error";
+        }
+
+        return left.pseudoCompile(table) + right.pseudoCompile(table) + opCode + " ";
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"arithmetic_expr\", \"operator\": \"" + operator + "\", \"left\": ");
+        left.printJson();
+        System.out.println(", \"right\": ");
+        right.printJson();
+        System.out.println("}");
+    }
+}
+
+class CompExpr extends Expr {
+    String operator;
+    Expr left;
+    Expr right;
+
+    CompExpr(String op, Expr lhs, Expr rhs)
+    {
+        operator = op;
+        left = lhs;
+        right = rhs;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"compare_expr\", \"operator\": \"" + operator + "\", \"left\": ");
+        left.printJson();
+        System.out.println(", \"right\": ");
+        right.printJson();
+        System.out.println("}");
+    }
+}
+
+class IdentExpr extends Expr implements PseudoCompilable {
+    String name;
+
+    IdentExpr(String n) { name = n; }
+
+    public String pseudoCompile(SymTable table) {
+        try {
+            Symbol sym = table.getSymbol(name);
+            String load = sym.loadInstructions();
+            return load;
+        } catch (ParseException e) {
+            System.err.println("Could not find " + name);
+            return "error";
+        }
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"identifier_expr\", \"name\": \"" + name + "\" }");
+    }
+}
+
+abstract class Stmt implements AstNode {
+    public void printJson() {
+        System.out.println("{}");
+    }
+}
+
+class AssignStmt extends Stmt {
+    String ident;
+    Expr expression;
+
+    AssignStmt(String id, Expr e) {
+        ident = id;
+        expression = e;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"assign_stmt\", \"name\": \"" + ident + "\", \"expr\": ");
+        expression.printJson();
+        System.out.println("}");
+    }
+}
+
+class PrintStmt extends Stmt {
+    Expr expression;
+
+    PrintStmt(Expr e)
+    {
+        expression = e;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"print_stmt\", \"expr\": ");
+        expression.printJson();
+        System.out.println("}");
+    }
+}
+
+class BlockStmt extends Stmt {
+    ArrayList<Stmt> statements = new ArrayList<Stmt>();
+
+    BlockStmt() {}
+
+    void add(Stmt s)
+    {
+        statements.add(s);
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"block_stmt\", \"statements\": [");
+
+        for (int i = 0; i < (statements.size() - 1); ++i)
+        {
+            statements.get(i).printJson();
+            System.out.println(",");
+        }
+
+        if (statements.size() > 0) {
+            statements.get(statements.size() - 1).printJson();
+        }
+
+        System.out.println("] }");
+    }
+}
+
+class IfStmt extends Stmt {
+    CompExpr cond;
+    Stmt true_statement;
+    Stmt false_statement;
+
+    IfStmt(CompExpr c, Stmt t_stmt, Stmt f_stmt)
+    {
+        cond = c;
+        true_statement = t_stmt;
+        false_statement = f_stmt;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"if_stmt\", \"condition\": ");
+        cond.printJson();
+        System.out.println(", \"true_stmt\": ");
+        true_statement.printJson();
+        if (false_statement != null)
+        {
+            System.out.println(", \"false_stmt\": ");
+            false_statement.printJson();
+        }
+        System.out.println("}");
+    }
+}
+
+class WhileStmt extends Stmt {
+    CompExpr cond;
+    Stmt statement;
+
+    WhileStmt(CompExpr c, Stmt s)
+    {
+        cond = c;
+        statement = s;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"while_stmt\", \"condition\": ");
+        cond.printJson();
+        System.out.println(", \"statement\": ");
+        statement.printJson();
+        System.out.println("}");
+    }
+}
+
+class DoWhileStmt extends Stmt {
+    Stmt statement;
+    CompExpr cond;
+
+    DoWhileStmt(Stmt s, CompExpr c) {
+        statement = s;
+        cond = c;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"do_while_stmt\", \"statement\": ");
+        statement.printJson();
+        System.out.println(", \"condition\": ");
+        cond.printJson();
+        System.out.println("}");
+    }
+}
+
+class CaseStmt extends Stmt {
+    int value;
+    Stmt statement;
+
+    CaseStmt(int v, Stmt s) {
+        value = v;
+        statement = s;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"case_stmt\", \"number\": " + value);
+
+        if (statement != null)
+        {
+            System.out.println(", \"statement\": ");
+            statement.printJson();
+        }
+        
+        System.out.println("}");
+    }
+}
+
+class DefaultStmt extends Stmt {
+    Stmt statement;
+
+    DefaultStmt(Stmt s) {
+        statement = s;
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"default_stmt\", \"statement\": ");
+        statement.printJson();
+        System.out.println("}");
+    }
+}
+
+class SwitchStmt extends Stmt {
+    String ident;
+    ArrayList<CaseStmt> cases = new ArrayList<CaseStmt>();
+    public DefaultStmt defaultStmt = null;
+
+    SwitchStmt(String id) {
+        ident = id;
+    }
+
+    void add(CaseStmt cs) {
+        cases.add(cs);
+    }
+
+    public void printJson() {
+        System.out.println("{ \"type\": \"switch_stmt\", \"identifier\": \"" + ident + "\", \"cases\": [");
+
+        for (int i = 0; i < (cases.size() - 1); ++i)
+        {
+            cases.get(i).printJson();
+            System.out.println(",");
+        }
+
+        if (cases.size() > 0) {
+            cases.get(cases.size() - 1).printJson();
+        }
+
+        System.out.println("]");
+
+        if (defaultStmt != null)
+        {
+            System.out.println(", \"default\": ");
+            defaultStmt.printJson();
+        }
+
+        System.out.println("}");
+    }
+}
+
+PARSER_END(Parser)
+
+
+SKIP: {
+    " "
+  | "\t"
+  | "\r"
+  | "\n"
+}
+
+
+TOKEN: {
+    "(" | ")" |
+
+    <FINAL: "final">
+  | <INT: "int">
+  | <IF: "if">
+  | <ELSE: "else">
+  | <WHILE: "while">
+  | <PRINT: "print">
+  // uebung 32
+  | <DO: "do">
+  | <SWITCH: "switch">
+  | <CASE: "case">
+  | <CASE_DEFAULT: "default">
+  | <BREAK: "break">
+  | <COLON: ":">
+
+  | <OP_MUL_DIV: "*" | "/">
+  | <OP_ADD_MIN: "+" | "-">
+  | <NUM: "0" | (["1"-"9"](["0"-"9"])*)>
+  | <#DIGIT: ["0"-"9"]>
+  | <#LLETTER: ["a"-"z"]>
+  | <#ULETTER: ["A"-"Z"]>
+  | <#LETTER: <LLETTER> | <ULETTER>>
+  | <#ALPHANUM: <DIGIT> | <LETTER>>
+  | <IDENT: <LLETTER> (<ALPHANUM>)*>
+
+
+ 
+  | <OP_ASSIGN: "=">
+  | <SCOLON: ";">
+  | <COMMA: ",">
+  | <OP_COMP: "<" | ">">
+}
+
+ExprProgram SE():
+{MultiConstDecl cd = null; MultiVarDecl vd = null; Expr e = null;}
+{
+    (cd=CDecl())? (vd=VDecl())? (e=Expression()) <EOF> { return new ExprProgram(cd, vd, e); }
+}
+
+Program S():
+{MultiConstDecl cd = null; MultiVarDecl vd = null; Stmt s;}
+{
+    (cd=CDecl())? (vd=VDecl())? (s=Statement()) <EOF> { return new Program(cd, vd, s); }
+}
+
+// constant decl
+MultiConstDecl CDecl():
+{ConstDecl cd; MultiConstDecl mcd = new MultiConstDecl();}
+{
+    <FINAL> <INT> (cd=CAssign() {mcd.add(cd);}) (<COMMA> cd=CAssign() {mcd.add(cd);})* <SCOLON> {return mcd;}
+}
+
+MultiVarDecl VDecl():
+{VarDecl vd; MultiVarDecl mvd = new MultiVarDecl();}
+{
+    <INT> (vd=VAssign() {mvd.add(vd);}) (<COMMA> vd=VAssign() {mvd.add(vd);})* <SCOLON> {return mvd;}
+}
+
+// const assign
+// must be initialized
+ConstDecl CAssign():
+{Token id; Token n;}
+{
+    id=<IDENT> <OP_ASSIGN> n=<NUM> {return new ConstDecl(id.image, Integer.parseInt(n.image));}
+}
+
+// var assign
+// can be uninitialized
+VarDecl VAssign():
+{Token id; Token n = null;}
+{
+    id=<IDENT> (<OP_ASSIGN> n=<NUM>)? {return new VarDecl(id.image, n == null? 0 : Integer.parseInt(n.image));}
+}
+
+Expr Expression():
+{Expr e1; Expr e2; Token op;}
+{
+    e1=Product() (op=<OP_ADD_MIN> e2=Product() {e1 = new ArithmeticExpr(op.image, e1, e2);})* {return e1;}
+}
+
+Expr Product():
+{Expr e1; Expr e2; Token op;}
+{
+    e1=Term() (op=<OP_MUL_DIV> e2=Term() {e1 = new ArithmeticExpr(op.image, e1, e2);})* {return e1;}
+}
+
+Expr Term():
+{Token n; Expr e;}
+{
+    // (n=<NUM> {return new NumExpr(Integer.parseInt(n.image));})
+    (e=LitNum() {return e;})
+  | (n=<IDENT> {return new IdentExpr(n.image);})
+  | ("(" e=Expression() ")" {return e;})
+}
+
+NumExpr LitNum():
+{Token n;}
+{
+    n=<NUM> {return new NumExpr(Integer.parseInt(n.image));}
+}
+
+CompExpr Cond():
+{Expr e1; Expr e2; Token op;}
+{
+    e1=Expression() op=<OP_COMP> e2=Expression() {return new CompExpr(op.image, e1, e2);}
+}
+
+Stmt Statement():
+{Token id; Token n; CompExpr ce; Expr e; Stmt s = null; Stmt s2; BlockStmt bs = new BlockStmt(); SwitchStmt ss; DefaultStmt ds;}
+{
+    (id=<IDENT> <OP_ASSIGN> e=Expression() <SCOLON>)
+  | (<PRINT> "(" e=Expression() ")" <SCOLON> {return new PrintStmt(e);}) 
+  | ("{" (s=Statement() {bs.add(s);})* "}" {return bs;})
+  | (<IF> ce=Cond() s=Statement() s2=OptElse() {return new IfStmt(ce, s, s2);}) // TODO else case
+  | (<WHILE> ce=Cond() s=Statement() {return new WhileStmt(ce, s);})
+  // aufgabe 32
+  | (<DO> s=Statement() <WHILE> ce=Cond() <SCOLON> {return new DoWhileStmt(s, ce);})
+  | (<SWITCH> id=<IDENT> "{" {ss=new SwitchStmt(id.image);} (<CASE> n=<NUM> <COLON> (s=Statement())? {ss.add(new CaseStmt(Integer.parseInt(n.image), s)); s = null;})* ds=OptSwitchDefault() "}" {ss.defaultStmt = ds; return ss;})
+}
+
+DefaultStmt OptSwitchDefault():
+{Stmt s;}
+{
+    (<CASE_DEFAULT> <COLON> s=Statement() {return new DefaultStmt(s);})
+}
+
+Stmt Empty():
+{}
+{
+    ({ return null; })
+}
+
+Stmt OptElse():
+{Stmt s;}
+{
+    (<ELSE> s=Statement() {return s;})
+  | Empty()
+}
