@@ -72,7 +72,7 @@ class Symbol {
 }
 
 class SymTable  {
-    Hashtable symbols = new Hashtable();
+    Hashtable<String, Symbol> symbols = new Hashtable<String, Symbol>();
 
     void addConstant(String id, String val) throws MultipleDefinitionException {
         if(symbols.containsKey(id))
@@ -95,7 +95,7 @@ class SymTable  {
         if(!symbols.containsKey(id)) 
              throw new NotDefinedException("symbol " + id + " undefined");
        
-         return (Symbol)symbols.get(id);
+         return symbols.get(id);
     }    
 
     public String toString() {
@@ -152,6 +152,7 @@ void constAssign():
        }
    } catch(MultipleDefinitionException e) {
        System.out.println(e);
+       System.exit(0);
    }
 }
 
@@ -175,6 +176,7 @@ void varDecl():
     }
     catch (MultipleDefinitionException e) {
         System.out.println(e);
+        System.exit(0);
     }
 }
 
@@ -202,6 +204,7 @@ void varList():
         } (varList())?
     } catch (MultipleDefinitionException e) {
         System.out.println(e);
+        System.exit(0);
     }
 }
 
@@ -226,6 +229,7 @@ Expr F():
            return new Num(Integer.parseInt(symTable.getSymbol(n.image).getVal()));
        } catch(NotDefinedException ex) {
            System.out.println(ex);
+           System.exit(0);
        }
     }
   | "(" e=E() ")" {return e;}
