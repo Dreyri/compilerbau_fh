@@ -1,0 +1,13 @@
+final int a = 10, b = 5;
+int x = 4, y;
+z
+
+while x < a {
+    if y < 5 {
+        print(y);
+        y = y + 1;
+    } else {
+    } 
+
+    x = x + 1;
+}

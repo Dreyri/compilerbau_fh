@@ -1,6 +1,6 @@
 CC = javacc
 CX = javac
-SRC = a1.jj
+SRC = p3e1.jj
 TEST = ./test.mjava
 TEST_MULT_EXCEPTION = ./multiple_def_exception.mjava
 TEST_UNDEFINED_EXCEPTION = ./undefined_exception.mjava
@@ -30,4 +30,4 @@ undef_exception_test:
 
 clean:
 	@echo "clean:"
-	rm *.java *.class
+	rm -f *.java *.class

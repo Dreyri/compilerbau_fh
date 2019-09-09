@@ -1,0 +1,20 @@
+CC = ../../miniJavaCompiler.jar
+CX = java
+SRC = p4e1.mjava
+BIN = miniJavaFile
+
+all: build run
+
+build:
+	@echo "build:"
+	$(CX) -jar $(CC) < $(SRC)
+	@echo ""
+
+run:
+	@echo "run:"
+	$(CX) miniJavaFile
+	@echo ""
+
+clean:
+	@echo "clean:"
+	rm -f *.java *.class

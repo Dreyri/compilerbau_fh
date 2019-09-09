@@ -1,11 +1,11 @@
 CC = javacc
 CX = javac
-SRC = p3a2.jj
-TEST = ./test.mjava
+SRC = p4e2.jj
+TEST = ./expr.mjava
 TEST_WRONG = ./wrong.mjava
-CLASS = SyntaxChecker
+CLASS = Parser
 
-all: build test test_wrong
+all: build test
 
 build:
 	@echo "build:"
@@ -18,11 +18,6 @@ test:
 	java $(CLASS) $(TEST)
 	@echo ""
 
-test_wrong:
-	@echo "test_wrong:"
-	java $(CLASS) $(TEST_MULT_EXCEPTION)
-	@echo ""
-
 clean:
 	@echo "clean:"
-	rm *.java *.class
+	rm -f *.java *.class
