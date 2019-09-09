@@ -16,21 +16,21 @@ build:
 
 test:
 	@echo "test:"
-	cat $(TEST)
+	- cat $(TEST)
 	@echo ""
 	java $(CLASS) $(TEST)
 	@echo ""
 
 mult_exception_test:
 	@echo "mult_exception_test:"
-	cat $(TEST_MULT_EXCEPTION)
+	- cat $(TEST_MULT_EXCEPTION)
 	@echo ""
 	java $(CLASS) $(TEST_MULT_EXCEPTION)
 	@echo ""
 
 undef_exception_test:
 	@echo "undef_exception_test:"
-	cat $(TEST_UNDEFINED_EXCEPTION)
+	- cat $(TEST_UNDEFINED_EXCEPTION)
 	@echo ""
 	java $(CLASS) $(TEST_UNDEFINED_EXCEPTION)
 

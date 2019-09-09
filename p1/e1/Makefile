@@ -12,7 +12,7 @@ build:
 
 run:
 	@echo "run:"
-	cat $(SRC)
+	- cat $(SRC)
 	@echo ""
 	$(CX) miniJavaFile
 	@echo ""

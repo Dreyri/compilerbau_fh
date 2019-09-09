@@ -15,6 +15,7 @@ build:
 
 test:
 	@echo "test:"
+	- cat $(TEST)
 	java $(CLASS) $(TEST)
 	@echo ""
 

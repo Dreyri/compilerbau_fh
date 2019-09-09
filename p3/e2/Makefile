@@ -15,14 +15,14 @@ build:
 
 test:
 	@echo "test:"
-	cat $(TEST)
+	- cat $(TEST)
 	@echo ""
 	java $(CLASS) $(TEST)
 	@echo ""
 
 test_wrong:
 	@echo "test_wrong:"
-	cat $(TEST_WRONG)
+	- cat $(TEST_WRONG)
 	@echo ""
 	java $(CLASS) $(TEST_WRONG)
 	@echo ""
