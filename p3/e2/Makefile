@@ -15,12 +15,16 @@ build:
 
 test:
 	@echo "test:"
+	cat $(TEST)
+	@echo ""
 	java $(CLASS) $(TEST)
 	@echo ""
 
 test_wrong:
 	@echo "test_wrong:"
-	java $(CLASS) $(TEST_MULT_EXCEPTION)
+	cat $(TEST_WRONG)
+	@echo ""
+	java $(CLASS) $(TEST_WRONG)
 	@echo ""
 
 clean:

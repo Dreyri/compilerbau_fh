@@ -12,6 +12,8 @@ build:
 
 run:
 	@echo "run:"
+	cat $(SRC)
+	@echo ""
 	$(CX) miniJavaFile
 	@echo ""
 

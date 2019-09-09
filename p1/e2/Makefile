@@ -13,7 +13,7 @@ build:
 	@echo ""
 
 run:
-	@echo "run:" 
+	@echo "run:"
 	java $(CLASS) $(TESTSTRING)
 	@echo ""
 
