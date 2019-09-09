@@ -19,7 +19,7 @@ test:
 	@echo ""
 
 test_wrong:
-	@echo "mult_exception_test:"
+	@echo "test_wrong:"
 	java $(CLASS) $(TEST_MULT_EXCEPTION)
 	@echo ""
 
