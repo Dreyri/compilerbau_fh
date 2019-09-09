@@ -256,13 +256,13 @@ class Program implements AstNode {
 class ExprProgram implements AstNode, Symbolizable, PseudoCompilable {
     MultiConstDecl cdecl;
     MultiVarDecl vdecl;
-    Expr expression;
+    PrintStmt printStatement;
 
-    ExprProgram(MultiConstDecl cd, MultiVarDecl vd, Expr e)
+    ExprProgram(MultiConstDecl cd, MultiVarDecl vd, PrintStmt ps)
     {
         cdecl = cd;
         vdecl = vd;
-        expression = e;
+        printStatement = ps;
     }
 
     public void addSymbols(SymTable table)
@@ -272,7 +272,7 @@ class ExprProgram implements AstNode, Symbolizable, PseudoCompilable {
     }
 
     public String pseudoCompile(SymTable table) {
-        return vdecl.pseudoCompile(table) + expression.pseudoCompile(table);
+        return vdecl.pseudoCompile(table) + printStatement.pseudoCompile(table);
     }
 
     public void printJson() {
@@ -280,8 +280,8 @@ class ExprProgram implements AstNode, Symbolizable, PseudoCompilable {
         cdecl.printJson();
         System.out.println(", \"var_decls\": ");
         vdecl.printJson();
-        System.out.println(", \"expression\" : ");
-        expression.printJson();
+        System.out.println(", \"print_stmt\" : ");
+        printStatement.printJson();
         System.out.println("}");
     }
 }
@@ -406,7 +406,7 @@ class AssignStmt extends Stmt {
     }
 }
 
-class PrintStmt extends Stmt {
+class PrintStmt extends Stmt implements PseudoCompilable {
     Expr expression;
 
     PrintStmt(Expr e)
@@ -418,6 +418,10 @@ class PrintStmt extends Stmt {
         System.out.println("{ \"type\": \"print_stmt\", \"expr\": ");
         expression.printJson();
         System.out.println("}");
+    }
+
+    public String pseudoCompile(SymTable table) {
+        return expression.pseudoCompile(table) + "print";
     }
 }
 
@@ -632,9 +636,9 @@ TOKEN: {
 }
 
 ExprProgram SE():
-{MultiConstDecl cd = null; MultiVarDecl vd = null; Expr e = null;}
+{MultiConstDecl cd = null; MultiVarDecl vd = null; PrintStmt ps = null;}
 {
-    (cd=CDecl())? (vd=VDecl())? (e=Expression()) <EOF> { return new ExprProgram(cd, vd, e); }
+    (cd=CDecl())? (vd=VDecl())? (ps=PrintStatement()) <EOF> { return new ExprProgram(cd, vd, ps); }
 }
 
 Program S():
@@ -709,13 +713,20 @@ Stmt Statement():
 {Token id; Token n; CompExpr ce; Expr e; Stmt s = null; Stmt s2; BlockStmt bs = new BlockStmt(); SwitchStmt ss; DefaultStmt ds;}
 {
     (id=<IDENT> <OP_ASSIGN> e=Expression() <SCOLON>)
-  | (<PRINT> "(" e=Expression() ")" <SCOLON> {return new PrintStmt(e);}) 
+  //| (<PRINT> "(" e=Expression() ")" <SCOLON> {return new PrintStmt(e);}) 
   | ("{" (s=Statement() {bs.add(s);})* "}" {return bs;})
   | (<IF> ce=Cond() s=Statement() s2=OptElse() {return new IfStmt(ce, s, s2);}) // TODO else case
   | (<WHILE> ce=Cond() s=Statement() {return new WhileStmt(ce, s);})
+  | (s=PrintStatement() {return s;})
   // aufgabe 32
   | (<DO> s=Statement() <WHILE> ce=Cond() <SCOLON> {return new DoWhileStmt(s, ce);})
   | (<SWITCH> id=<IDENT> "{" {ss=new SwitchStmt(id.image);} (<CASE> n=<NUM> <COLON> (s=Statement())? {ss.add(new CaseStmt(Integer.parseInt(n.image), s)); s = null;})* ds=OptSwitchDefault() "}" {ss.defaultStmt = ds; return ss;})
+}
+
+PrintStmt PrintStatement():
+{Expr e;}
+{
+    (<PRINT> "(" e=Expression() ")" <SCOLON> {return new PrintStmt(e); })
 }
 
 DefaultStmt OptSwitchDefault():
