@@ -119,5 +119,5 @@ void Statement():
 void OptElse():
 {}
 {
-    (<ELSE> Statement())
+    (<ELSE> Statement())?
 }
