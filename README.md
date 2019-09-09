@@ -3,9 +3,15 @@ This repository shows our implementation for the exercises from the course "Comp
 Aachen. If you take the course please note that our work is not to be copied and handed in as ones 
 own work. We do not give any warranty about the completeness or even correctness of this work.
 
+## Preperation
+To run the exercises:
+* javacc
+* javac
+* miniJavaCompiler (introduced in the lecture)
+
 ## Build and run specific exercise
 ```
-make <internship_nr><excercise_nr>
+make <labassignment_nr><excercise_nr>
 ```
 E.q.
 ```
