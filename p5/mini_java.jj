@@ -48,7 +48,7 @@ class Symbol {
 }
 
 class SymbolTable {
-	HashTable<String, Symbol> symbols = new HashTable<String, Symbol>();
+	Hashtable<String, Symbol> symbols = new Hashtable<String, Symbol>();
 	int currentIndex = 1;
 
 	private void checkMultipleDefinition(String id) throws MultipleDefinitionException
@@ -242,6 +242,16 @@ class BlockStmt implements Stmt {
 	}
 }
 
+class AssignStmt implements Stmt {
+	String identifier;
+	Expr expression;
+
+	AssignStmt(String ident, Expr e) {
+		identifier = ident;
+		expression = e;
+	}
+}
+
 class IfStmt implements Stmt {
 	ComparisonExpr condition;
 	Stmt true_case;
@@ -261,6 +271,14 @@ class WhileStmt implements Stmt {
 	WhileStmt(ComparisonExpr comp, Stmt s) {
 		condition = comp;
 		statement = s;
+	}
+}
+
+class PrintStmt implements Stmt {
+	Expr expression;
+
+	PrintStmt(Expr e) {
+		expression = e;
 	}
 }
 
@@ -314,18 +332,18 @@ ArrayList<ConstDeclaration> constDecls():
 	ArrayList<ConstDeclaration> cds = new ArrayList<ConstDeclaration>();
 }
 {
-	(<FINAL> <INT> 
-		ident=<IDENT> <OP_ASSIGN> number=<NUMBER> 
-		{ 
-			cds.add(new ConstDeclaration(ident.image, number.image)); 
-		} 
-		(ident=<IDENT> <OP_ASSIGN> number=<NUMBER> 
-		{ 
+	(<FINAL> <INT>
+		ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
+		{
 			cds.add(new ConstDeclaration(ident.image, number.image));
 		}
-		)* ";" 
-		{ 
-			return cds; 
+		(ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
+		{
+			cds.add(new ConstDeclaration(ident.image, number.image));
+		}
+		)* ";"
+		{
+			return cds;
 		})
 }
 
@@ -413,24 +431,72 @@ Expr term():
     })
 }
 
-void condition():
+ComparisonExpr condition():
 {
 	Expr e1;
 	Expr e2;
 	Token op;
 }
 {
-	(e1=expression() op=<OP_COMPARE> e2=expression())
+	(e1=expression() op=<OP_COMPARE> e2=expression() {
+		return new ComparisonExpr(op.image, e1, e2);
+	})
 }
 
 Stmt statement():
-{}
+{
+	Stmt s;
+}
 {
 	(<IDENT> <OP_ASSIGN> expression() ";")
-  | (<WHILE> condition() statement())
-  | (<PRINT> "(" expression() ")" ";")
-  | (<IF> condition() statement() optElse())
-  | ("{" compoundStatement() "}")
+  | (s=whileStatement() { return s; })
+  | (s=printStatement() { return s; })
+  | (s=ifStatement() { return s; })
+  | ("{" s=compoundStatement() "}")
+}
+
+AssignStmt assignStatement():
+{
+	Token ident;
+	Expr e;
+}
+{
+	(ident=<IDENT> <OP_ASSIGN> e=expression() ";" {
+		return new AssignStmt(ident.image, e);
+	})
+}
+
+WhileStmt whileStatement():
+{
+	ComparisonExpr cond;
+	Stmt s;
+}
+{
+	(<WHILE> cond=condition() s=statement() {
+		return new WhileStmt(cond, s);
+	})
+}
+
+PrintStmt printStatement():
+{
+	Expr e;
+}
+{
+	(<PRINT> "(" e=expression() ")" {
+		return new PrintStmt(e);
+	})
+}
+
+IfStmt ifStatement():
+{
+	ComparisonExpr cond;
+	Stmt true_statement;
+	Stmt false_statement;
+}
+{
+	(<IF> cond=condition() true_statement=statement() false_statement=optElse() {
+		return new IfStmt(cond, true_statement, false_statement);
+	})
 }
 
 CompoundStmt compoundStatement():
@@ -448,7 +514,11 @@ CompoundStmt compoundStatement():
 }
 
 Stmt optElse():
-{}
 {
-	(<ELSE> statement())?
+	Stmt s;
+}
+{
+	(<ELSE> s=statement() {
+		return s;
+	})?
 }
