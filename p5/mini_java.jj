@@ -1,0 +1,454 @@
+PARSER_BEGIN(Parser)
+import java.util.*;
+
+public class Parser {
+
+    public static void main(String[] args)
+    {
+        try {
+            SymbolTable sym = new SymbolTable();
+	        Program res = new Parser(new java.io.FileReader(args[0])).parse();
+		}
+		catch(Throwable e)
+		{
+			System.out.println("Syntax error: " + e.getMessage());
+		}
+    }
+}
+
+class MultipleDefinitionException extends Exception {
+	public MultipleDefinitionException(String symbol) {
+		super(symbol + " was defined multiple times");
+	}
+}
+
+class UndefinedException extends Exception {
+	public UndefinedException(String symbol) {
+		super(symbol + " is undefined");
+	}
+}
+
+enum Mutability {
+	CONST,
+	VAR
+}
+
+class Symbol {
+	String identifier;
+	int value;
+	Mutability mut;
+	int index;
+
+	Symbol(String ident, int v, Mutability m, int idx) {
+		identifier = ident;
+		value = v;
+		mut = m;
+		index = idx;
+	}
+}
+
+class SymbolTable {
+	HashTable<String, Symbol> symbols = new HashTable<String, Symbol>();
+	int currentIndex = 1;
+
+	private void checkMultipleDefinition(String id) throws MultipleDefinitionException
+	{
+		if (symbols.containsKey(id))
+		{
+			throw new MultipleDefinitionException("redefinition of " + id);
+		}
+	}
+
+	void addConstant(String id, int value) throws MultipleDefinitionException
+	{
+		checkMultipleDefinition(id);
+		symbols.put(id, new Symbol(id, value, Mutability.CONST, -1));
+	}
+
+	void addVariable(String id, int value) throws MultipleDefinitionException
+	{
+		checkMultipleDefinition(id);
+		symbols.put(id, new Symbol(id, value, Mutability.VAR, currentIndex++));
+	}
+
+	Symbol lookup(String id) throws UndefinedException {
+		if (!symbols.containsKey(id))
+		{
+			throw new UndefinedException(id + " was not defined");
+		}
+
+		return symbols.get(id);
+	}
+}
+
+interface Visitor<T> {
+	public void visit(T element);
+}
+
+class Program {
+	ArrayList<ConstDeclaration> constDeclarations;
+	ArrayList<VarDeclaration> varDeclarations;
+	Stmt statement;
+
+	Program(ArrayList<ConstDeclaration> cdecls, 
+			ArrayList<VarDeclaration> vdecls,
+			Stmt s) {
+		constDeclarations = cdecls;
+		varDeclarations = vdecls;
+		statement = s;
+	}
+}
+
+class ConstDeclaration {
+	String identifier;
+	int value;
+
+	ConstDeclaration(String ident, int v) {
+		identifier = ident;
+		value = v;
+	}
+
+	ConstDeclaration(String ident, String v) {
+		this(ident, Integer.parseInt(v));
+	}
+}
+
+class VarDeclaration {
+	String identifier;
+	int value;
+
+	VarDeclaration(String ident, int v) {
+		identifier = ident;
+		value = v;
+	}
+
+	VarDeclaration(String ident, String v) {
+		this(ident, Integer.parseInt(v));
+	}
+}
+
+//public class Symbolizer implements 
+
+interface Expr {}
+
+class Literal implements Expr {
+	int value;
+
+	Literal(int v) { value = v; }
+	Literal(String lit) { this(Integer.parseInt(lit)); }
+}
+
+class IdentExpr implements Expr {
+	String name;
+
+	IdentExpr(String n) { name = n; }
+}
+
+enum BinaryOp {
+	ADD,
+	SUB,
+	MUL,
+	DIV
+}
+
+class BinaryExpr implements Expr {
+	BinaryOp operation;
+	Expr left_operand;
+	Expr right_operand;
+
+	BinaryExpr(String o, Expr left, Expr right) {
+		switch(o) {
+			case "+":
+				operation = BinaryOp.ADD;
+				break;
+			case "-":
+				operation = BinaryOp.SUB;
+				break;
+			case "*":
+				operation = BinaryOp.MUL;
+				break;
+			case "/":
+				operation = BinaryOp.DIV;
+				break;
+			default:
+				throw new IllegalArgumentException();
+		}
+
+		left_operand = left;
+		right_operand = right;
+	}
+}
+
+
+enum CompareOp {
+	LT,
+	LTE,
+	GT,
+	GTE,
+	EQ,
+	NEQ
+}
+
+class ComparisonExpr implements Expr {
+	CompareOp operation;
+	Expr left_operand;
+	Expr right_operand;
+
+	ComparisonExpr(String op, Expr left, Expr right)
+	{
+		switch(op) {
+			case "<":
+				operation = CompareOp.LT;
+				break;
+			case "<=":
+				operation = CompareOp.LTE;
+				break;
+			case ">":
+				operation = CompareOp.GT;
+				break;
+			case ">=":
+				operation = CompareOp.GTE;
+				break;
+			case "==":
+				operation = CompareOp.EQ;
+				break;
+			case "!=":
+				operation = CompareOp.NEQ;
+				break;
+			default:
+				throw new IllegalArgumentException();
+		}
+
+		left_operand = left;
+		right_operand = right;
+	}
+}
+
+interface Stmt {}
+
+class CompoundStmt implements Stmt {
+	ArrayList<Stmt> statements = new ArrayList<Stmt>();
+
+	public void add(Stmt s) {
+		statements.add(s);
+	}
+}
+
+class BlockStmt implements Stmt {
+	CompoundStmt statements;
+
+	BlockStmt(CompoundStmt cs) {
+		statements = cs;
+	}
+}
+
+class IfStmt implements Stmt {
+	ComparisonExpr condition;
+	Stmt true_case;
+	Stmt false_case;
+
+	IfStmt(ComparisonExpr comp, Stmt tr, Stmt fa) {
+		condition = comp;
+		true_case = tr;
+		false_case = fa;
+	}
+}
+
+class WhileStmt implements Stmt {
+	ComparisonExpr condition;
+	Stmt statement;
+
+	WhileStmt(ComparisonExpr comp, Stmt s) {
+		condition = comp;
+		statement = s;
+	}
+}
+
+PARSER_END(Parser)
+
+SKIP: {
+	" "
+  | "\t"
+  | "\n"
+  | "\r"
+}
+
+TOKEN: {
+    <LPAREN: "(">
+  | <RPAREN: ")">
+  | <OP_ADD_SUB: "+" | "-">
+  | <OP_MUL_DIV: "*" | "/">
+  | <OP_COMPARE: "<" | ">" | "<=" | ">=" | "==" | "!=">
+  | <OP_ASSIGN: "=">
+
+  | <WHILE: "while">
+  | <IF: "if">
+  | <ELSE: "else">
+  | <INT: "int">
+  | <FINAL: "final">
+  | <PRINT: "print">
+
+  | <NUMBER: "0" | (["1"-"9"](["0"-"9"])*)>
+  | <#DIGIT: ["0"-"9"]>
+  | <#LOWER_LETTER: ["a"-"z"]>
+  | <#UPPER_LETTER: ["A"-"Z"]>
+  | <#LETTER: <LOWER_LETTER> | <UPPER_LETTER>>
+  | <#ALPHANUM: <DIGIT> | <LETTER>>
+  | <IDENT: <LOWER_LETTER> (<ALPHANUM>)*>
+}
+
+Program parse():
+{
+	ArrayList<ConstDeclaration> cds = new ArrayList<ConstDeclaration>();
+	ArrayList<VarDeclaration> vds = new ArrayList<VarDeclaration>();
+	Stmt s;
+}
+{
+	(cds=constDecls() vds=varDecls() s=statement() <EOF> { return new Program(cds, vds, s);})
+}
+
+ArrayList<ConstDeclaration> constDecls():
+{
+	Token ident;
+	Token number;
+	ArrayList<ConstDeclaration> cds = new ArrayList<ConstDeclaration>();
+}
+{
+	(<FINAL> <INT> 
+		ident=<IDENT> <OP_ASSIGN> number=<NUMBER> 
+		{ 
+			cds.add(new ConstDeclaration(ident.image, number.image)); 
+		} 
+		(ident=<IDENT> <OP_ASSIGN> number=<NUMBER> 
+		{ 
+			cds.add(new ConstDeclaration(ident.image, number.image));
+		}
+		)* ";" 
+		{ 
+			return cds; 
+		})
+}
+
+ArrayList<VarDeclaration> varDecls():
+{
+	Token ident;
+	Token number;
+	ArrayList<VarDeclaration> vds = new ArrayList<VarDeclaration>();
+}
+{
+	(<INT> 
+		ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
+		{
+			vds.add(new VarDeclaration(ident.image, number.image));
+			number = null; // reset to null because this could be unused
+		}
+		(ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)?
+		{
+			if (number != null) {
+				vds.add(new VarDeclaration(ident.image, number.image));
+			}
+			else {
+				vds.add(new VarDeclaration(ident.image, 0));
+			}
+		})* ";"
+		{
+			return vds;
+		})
+}
+
+Expr expression():
+{
+	Expr e;
+}
+{
+	(e=sum() {
+		return e;
+	})
+}
+
+Expr sum():
+{
+	Token op;
+	Expr e1;
+	Expr e2;
+}
+{
+	(e1=product() (op=<OP_ADD_SUB> e2=product() {
+		e1 = new BinaryExpr(op.image, e1, e2);
+	})* {
+		return e1;
+	})
+}
+
+Expr product():
+{
+	Token op;
+	Expr e1;
+	Expr e2;
+}
+{
+	(e1=term() (op=<OP_MUL_DIV> e2=term() {
+		e1 = new BinaryExpr(op.image, e1, e2);
+	})* {
+		return e1;
+	})
+}
+
+
+Expr term():
+{
+	Token ident;
+	Token num;
+	Expr e;
+}
+{
+	(num=<NUMBER> {
+		return new Literal(num.image);
+	})
+  | (ident=<IDENT> {
+	    return new IdentExpr(ident.image);
+    })
+  | ("(" e=expression() ")" {
+	    return e;
+    })
+}
+
+void condition():
+{
+	Expr e1;
+	Expr e2;
+	Token op;
+}
+{
+	(e1=expression() op=<OP_COMPARE> e2=expression())
+}
+
+Stmt statement():
+{}
+{
+	(<IDENT> <OP_ASSIGN> expression() ";")
+  | (<WHILE> condition() statement())
+  | (<PRINT> "(" expression() ")" ";")
+  | (<IF> condition() statement() optElse())
+  | ("{" compoundStatement() "}")
+}
+
+CompoundStmt compoundStatement():
+{
+	Stmt s;
+	CompoundStmt cs = new CompoundStmt();
+}
+{
+	(s = statement() {
+		cs.add(s);
+	})*
+	{
+		return cs;
+	}
+}
+
+Stmt optElse():
+{}
+{
+	(<ELSE> statement())?
+}
