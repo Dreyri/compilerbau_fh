@@ -337,7 +337,7 @@ ArrayList<ConstDeclaration> constDecls():
 		{
 			cds.add(new ConstDeclaration(ident.image, number.image));
 		}
-		(ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
+		("," ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
 		{
 			cds.add(new ConstDeclaration(ident.image, number.image));
 		}
@@ -360,7 +360,7 @@ ArrayList<VarDeclaration> varDecls():
 			vds.add(new VarDeclaration(ident.image, number.image));
 			number = null; // reset to null because this could be unused
 		}
-		(ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)?
+		("," ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)?
 		{
 			if (number != null) {
 				vds.add(new VarDeclaration(ident.image, number.image));
@@ -448,11 +448,11 @@ Stmt statement():
 	Stmt s;
 }
 {
-	(<IDENT> <OP_ASSIGN> expression() ";")
+    (s=assignStatement() { return s; })
   | (s=whileStatement() { return s; })
   | (s=printStatement() { return s; })
   | (s=ifStatement() { return s; })
-  | ("{" s=compoundStatement() "}")
+  | ("{" s=compoundStatement() "}" { return s; })
 }
 
 AssignStmt assignStatement():
@@ -482,7 +482,7 @@ PrintStmt printStatement():
 	Expr e;
 }
 {
-	(<PRINT> "(" e=expression() ")" {
+	(<PRINT> "(" e=expression() ")" ";" {
 		return new PrintStmt(e);
 	})
 }
