@@ -7,15 +7,15 @@ public class Parser {
     public static void main(String[] args)
     {
         try {
-	    Parser parser = new Parser(new java.io.FileReader(args[0]));
+        Parser parser = new Parser(new java.io.FileReader(args[0]));
             parser.program();
             System.out.println(symTable);
-	}
-	catch(Throwable e)
-	{
-	    System.out.println("Syntax error: " + e.getMessage());
-	}
-    }
+        }
+            catch(Throwable e)
+            {
+                System.out.println("Syntax error: " + e.getMessage());
+            }
+        }
 }
 
 enum Tag {
@@ -35,11 +35,10 @@ class NotDefinedException extends Exception {
     }
 }
 
-
 class Symbol {
     String value;
     Tag tag;
-  
+
     Symbol(String val, Tag t) {
         value = val;
         tag = t;
@@ -65,29 +64,29 @@ class SymTable  {
     }
 
     void addVariable(String id, String val) throws MultipleDefinitionException {
-        if(symbols.containsKey(id)) 
-            throw new MultipleDefinitionException("multiple definition of " + id); 
-        
+        if(symbols.containsKey(id))
+            throw new MultipleDefinitionException("multiple definition of " + id);
+
         if(val == "")
             val = "0";
 
         symbols.put(id, new Symbol(val, Tag.VAR));
     }
-  
+
     Symbol getSymbol(String id) throws NotDefinedException {
-        if(!symbols.containsKey(id)) 
+        if(!symbols.containsKey(id))
              throw new NotDefinedException("symbol " + id + " undefined");
-       
+
          return symbols.get(id);
-    }    
+    }
 
     public String toString() {
          return symbols.toString();
-    } 
+    }
 }
 
 class Program {
-    
+
 }
 
 PARSER_END(Parser)
@@ -150,9 +149,9 @@ void constAssign():
 }
 {
    try {
-       id = <IDENT> "=" num = <NUM> 
+       id = <IDENT> "=" num = <NUM>
        {
-           symTable.addConstant(id.image, num.image);      
+           symTable.addConstant(id.image, num.image);
        }
    } catch(MultipleDefinitionException e) {
        System.out.println(e);
@@ -189,10 +188,10 @@ String varAssign():
    Token num = null;
 }
 {
-   "=" num = <NUM> 
-   { 
-      return num.image; 
-   } 
+   "=" num = <NUM>
+   {
+      return num.image;
+   }
 }
 
 void varList():
@@ -202,7 +201,7 @@ void varList():
 }
 {
     try {
-        "," id = <IDENT> (num = varAssign())? 
+        "," id = <IDENT> (num = varAssign())?
         {
            symTable.addVariable(id.image, num);
         } (varList())?
@@ -261,6 +260,5 @@ void condition():
 void optElse():
 {}
 {
-    (<ELSE> statement())?
+    (LOOKAHEAD(2) <ELSE> statement())?
 }
-
