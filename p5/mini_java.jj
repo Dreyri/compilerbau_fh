@@ -8,6 +8,8 @@ public class Parser {
         try {
             SymbolTable sym = new SymbolTable();
 	        Program res = new Parser(new java.io.FileReader(args[0])).parse();
+			res.addSymbols(sym);
+			ArrayList<Integer> bytecode = res.compile(sym);
 		}
 		catch(Throwable e)
 		{
@@ -97,6 +99,30 @@ class Program {
 		varDeclarations = vdecls;
 		statement = s;
 	}
+
+	public void addSymbols(SymbolTable table) throws MultipleDefinitionException {
+		for (ConstDeclaration cdecl : constDeclarations) {
+			cdecl.addSymbol(table);
+		}
+		for (VarDeclaration vdecl : varDeclarations) {
+			vdecl.addSymbol(table);
+		}
+	}
+
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Integer> res = new ArrayList<Integer>();
+
+		for (ConstDeclaration cdecl : constDeclarations) {
+			res.addAll(0, cdecl.compile(table));
+		}
+
+		for (VarDeclaration vdecl : varDeclarations) {
+			res.addAll(0, vdecl.compile(table));
+		}
+
+		res.addAll(0, statement.compile(table));
+		return res;
+	}
 }
 
 class ConstDeclaration {
@@ -110,6 +136,14 @@ class ConstDeclaration {
 
 	ConstDeclaration(String ident, String v) {
 		this(ident, Integer.parseInt(v));
+	}
+
+	public void addSymbol(SymbolTable table) throws MultipleDefinitionException {
+		table.addConstant(identifier, value);
+	}
+
+	public ArrayList<Integer> compile(SymbolTable table) {
+		return new ArrayList<Integer>();
 	}
 }
 
@@ -125,23 +159,64 @@ class VarDeclaration {
 	VarDeclaration(String ident, String v) {
 		this(ident, Integer.parseInt(v));
 	}
+
+	public void addSymbol(SymbolTable table) throws MultipleDefinitionException {
+		table.addVariable(identifier, value);
+	}
+
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
+		Symbol sym = table.lookup(identifier);
+		ArrayList<Integer> res = new ArrayList<Integer>();
+		res.add(16); // 0x10, bipush
+		res.add(sym.value); // the value to push
+		res.add(54); // 0x36, istore
+		res.add(sym.index); // the index we're storing this value at
+
+		return res;
+	}
 }
 
 //public class Symbolizer implements 
 
-interface Expr {}
+interface Expr {
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException;
+}
 
 class Literal implements Expr {
 	int value;
 
 	Literal(int v) { value = v; }
 	Literal(String lit) { this(Integer.parseInt(lit)); }
+
+	public ArrayList<Integer> compile(SymbolTable table) {
+		ArrayList<Integer> res = new ArrayList<Integer>();
+		res.add(16); // 0x10, bipush
+		res.add(value); // push this value onto stack
+	}
 }
 
 class IdentExpr implements Expr {
 	String name;
 
 	IdentExpr(String n) { name = n; }
+
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
+		Symbol sym = table.lookup(name);
+
+		ArrayList<Integer> res = new ArrayList<Integer>();
+
+
+		if (sym.mut == Mutability.CONST) {
+			res.add(16); // byte push
+			res.add(sym.value); // with constant we just push the value
+		}
+		else {
+			res.add(21); // iload
+			res.add(sym.index); // load variable from "index"
+		}
+
+		return res;
+	}
 }
 
 enum BinaryOp {
@@ -176,6 +251,30 @@ class BinaryExpr implements Expr {
 
 		left_operand = left;
 		right_operand = right;
+	}
+
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
+		// push the two expressions onto the stack by executing them
+		ArrayList<Integer> res = left_operand.compile(table);
+		res.addAll(0, right_operand.compile(table));
+		
+		// execute the appropriate operator
+		switch(operation) {
+			case ADD:
+				res.add(96); // 0x60, iadd
+				break;
+			case SUB:
+				res.add(100); // 0x64, isub
+				break;
+			case MUL:
+				res.add(104); // 0x68, imul
+				break;
+			case DIV:
+				res.add(108); // 0x6c, idiv
+				break;
+		}
+
+		return res;
 	}
 }
 
@@ -222,15 +321,42 @@ class ComparisonExpr implements Expr {
 		left_operand = left;
 		right_operand = right;
 	}
+
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Integer> res = new ArrayList<Integer>();
+
+		// push the 2 expressions on the stack and then 
+		// execute the appropriate comparison operation,
+		// leaving the result of the comparison behind on the stack
+
+		res.addAll(0, left_operand.compile(table));
+		res.addAll(0, right_operand.compile(table));
+		
+		// do nothing with operation, this will get lifted
+		// into the enclosing if or while statement.
+		return res;
+	}
 }
 
-interface Stmt {}
+interface Stmt {
+	public ArrayList<Integer> compile(SymbolTable table);
+}
 
 class CompoundStmt implements Stmt {
 	ArrayList<Stmt> statements = new ArrayList<Stmt>();
 
 	public void add(Stmt s) {
 		statements.add(s);
+	}
+
+	public ArrayList<Integer> compile(SymbolTable table) {
+		ArrayList<Integer> res = new ArrayList<Integer>();
+		
+		for (Stmt s : statements) {
+			res.addAll(0, s.compile(table));
+		}
+
+		return res;
 	}
 }
 
@@ -239,6 +365,10 @@ class BlockStmt implements Stmt {
 
 	BlockStmt(CompoundStmt cs) {
 		statements = cs;
+	}
+
+	public ArrayList<Integer> compile(SymbolTable table) {
+		return statements.compile(table);
 	}
 }
 
@@ -256,8 +386,8 @@ class AssignStmt implements Stmt {
 		assert(sym.mut == Mutability.VAR);
 
 		ArrayList<Integer> exprCode = expression.compile(table);
-		exprCode.add(54);
-		exprCode.add(sym.index);
+		exprCode.add(54); // 0x36, istore
+		exprCode.add(sym.index); // load from index
 	}
 }
 
@@ -286,16 +416,16 @@ class IfStmt implements Stmt {
 		short offset = (short)(true_code.size() + 4);
 		byte upper_byte = (byte)(offset >> 8);
 		byte lower_byte = (byte)(offset & 0xFF);
-		condCode.add(upper_byte);
-		condCode.add(lower_byte);
+		condCode.add((int)upper_byte);
+		condCode.add((int)lower_byte);
 		condCode.addAll(0, true_code);
 
 		condCode.add(167); // jump past else block
 		offset = (short)(false_code.size() + 1);
-		upper_byte = (short)(offset >> 8);
-		lower_byte = (short)(offset & 0xFF);
-		condCode.add(upper_byte);
-		condCode.add(lower_byte);
+		upper_byte = (byte)(offset >> 8);
+		lower_byte = (byte)(offset & 0xFF);
+		condCode.add((int)upper_byte);
+		condCode.add((int)lower_byte);
 		condCode.addAll(0, false_code);
 	}
 }
@@ -347,6 +477,12 @@ class PrintStmt implements Stmt {
 
 	PrintStmt(Expr e) {
 		expression = e;
+	}
+
+	public ArrayList<Integer> compile(SymbolTable table) {
+		ArrayList<Integer> res = expression.compile(table);
+		res.add(87); // 0x57, pop
+		return res;
 	}
 }
 
