@@ -1,14 +1,12 @@
-final int a = 10, b = 5;
-int x = 4, y;
-
+final int n = 10;
+int last = 0, prev = 1, count = 0, res = 0;
 {
-while x < a {
-    if y < 5 {
-        print(y);
-        y = y + 1;
-    }
+	while count < n {
+		res = last + prev;
+		prev = last;
+		last = res;
+		count = count + 1;
+	}
 
-    x = x + 1;
-}
-    x = x - 1;
+	print(res);
 }
