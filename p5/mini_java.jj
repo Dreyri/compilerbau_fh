@@ -35,6 +35,8 @@ public class Parser {
 				}
 			}
 
+			bcStr = bcStr.toLowerCase();
+
 			MethodObject m = new MethodObject("main", 1, bcStr);
 
 			System.out.println(bcStr);
@@ -456,7 +458,11 @@ class IfStmt implements Stmt {
 	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
 		ArrayList<Byte> condCode = condition.compile(table);
 		ArrayList<Byte> true_code = true_case.compile(table);
-		ArrayList<Byte> false_code = false_case.compile(table);
+		ArrayList<Byte> false_code = null;
+		if (false_case != null)
+		{
+			false_code = false_case.compile(table);
+		}
 
 		// lift the condition from CompareExpr into this function
 		CompareOp op = condition.operation;
@@ -483,20 +489,26 @@ class IfStmt implements Stmt {
 		}
 
 		// jump (true.size() + 3 forward + (3 (jmp codes))
-		short offset = (short)(true_code.size() + 6);
+
+		short offset = (short)(true_code.size() + 3);
+		if (false_case != null) {
+			offset += 3;
+		}
 		byte upper_byte = (byte)(offset >> 8);
 		byte lower_byte = (byte)(offset & 0xFF);
 		condCode.add(upper_byte);
 		condCode.add(lower_byte);
 		condCode.addAll(true_code);
 
-		condCode.add((byte)167); // jump past else block
-		offset = (short)(false_code.size() + 3);
-		upper_byte = (byte)(offset >> 8);
-		lower_byte = (byte)(offset & 0xFF);
-		condCode.add(upper_byte);
-		condCode.add(lower_byte);
-		condCode.addAll(false_code);
+		if (false_case != null) {
+			condCode.add((byte)167); // jump past else block
+			offset = (short)(false_code.size() + 3);
+			upper_byte = (byte)(offset >> 8);
+			lower_byte = (byte)(offset & 0xFF);
+			condCode.add(upper_byte);
+			condCode.add(lower_byte);
+			condCode.addAll(false_code);
+		}
 
 		return condCode;
 	}
@@ -813,10 +825,11 @@ CompoundStmt compoundStatement():
 
 Stmt optElse():
 {
-	Stmt s;
+	Stmt s = null;
 }
 {
-	(<ELSE> s=statement() {
+	(<ELSE> s=statement())?
+	{
 		return s;
-	})?
+	}
 }
