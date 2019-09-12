@@ -9,7 +9,16 @@ public class Parser {
             SymbolTable sym = new SymbolTable();
 	        Program res = new Parser(new java.io.FileReader(args[0])).parse();
 			res.addSymbols(sym);
-			ArrayList<Integer> bytecode = res.compile(sym);
+			ArrayList<Byte> bytecode = res.compile(sym);
+			String bcStr = "";
+
+			for (int op : bytecode) {
+				bcStr = bcStr + Integer.toHexString(op & 0xFF) + " ";
+			}
+
+			MethodObject m = new MethodObject("main", 1, bcStr);
+
+			System.out.println(bcStr);
 		}
 		catch(Throwable e)
 		{
@@ -109,8 +118,8 @@ class Program {
 		}
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
-		ArrayList<Integer> res = new ArrayList<Integer>();
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Byte> res = new ArrayList<Byte>();
 
 		for (ConstDeclaration cdecl : constDeclarations) {
 			res.addAll(0, cdecl.compile(table));
@@ -142,8 +151,8 @@ class ConstDeclaration {
 		table.addConstant(identifier, value);
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
-		return new ArrayList<Integer>();
+	public ArrayList<Byte> compile(SymbolTable table) {
+		return new ArrayList<Byte>();
 	}
 }
 
@@ -164,13 +173,13 @@ class VarDeclaration {
 		table.addVariable(identifier, value);
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
 		Symbol sym = table.lookup(identifier);
-		ArrayList<Integer> res = new ArrayList<Integer>();
-		res.add(16); // 0x10, bipush
-		res.add(sym.value); // the value to push
-		res.add(54); // 0x36, istore
-		res.add(sym.index); // the index we're storing this value at
+		ArrayList<Byte> res = new ArrayList<Byte>();
+		res.add((byte)16); // 0x10, bipush
+		res.add((byte)sym.value); // the value to push
+		res.add((byte)54); // 0x36, istore
+		res.add((byte)sym.index); // the index we're storing this value at
 
 		return res;
 	}
@@ -179,7 +188,7 @@ class VarDeclaration {
 //public class Symbolizer implements 
 
 interface Expr {
-	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException;
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException;
 }
 
 class Literal implements Expr {
@@ -188,10 +197,12 @@ class Literal implements Expr {
 	Literal(int v) { value = v; }
 	Literal(String lit) { this(Integer.parseInt(lit)); }
 
-	public ArrayList<Integer> compile(SymbolTable table) {
-		ArrayList<Integer> res = new ArrayList<Integer>();
-		res.add(16); // 0x10, bipush
-		res.add(value); // push this value onto stack
+	public ArrayList<Byte> compile(SymbolTable table) {
+		ArrayList<Byte> res = new ArrayList<Byte>();
+		res.add((byte)16); // 0x10, bipush
+		res.add((byte)value); // push this value onto stack
+
+		return res;
 	}
 }
 
@@ -200,19 +211,19 @@ class IdentExpr implements Expr {
 
 	IdentExpr(String n) { name = n; }
 
-	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
 		Symbol sym = table.lookup(name);
 
-		ArrayList<Integer> res = new ArrayList<Integer>();
+		ArrayList<Byte> res = new ArrayList<Byte>();
 
 
 		if (sym.mut == Mutability.CONST) {
-			res.add(16); // byte push
-			res.add(sym.value); // with constant we just push the value
+			res.add((byte)16); // byte push
+			res.add((byte)sym.value); // with constant we just push the value
 		}
 		else {
-			res.add(21); // iload
-			res.add(sym.index); // load variable from "index"
+			res.add((byte)21); // iload
+			res.add((byte)sym.index); // load variable from "index"
 		}
 
 		return res;
@@ -253,24 +264,24 @@ class BinaryExpr implements Expr {
 		right_operand = right;
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
 		// push the two expressions onto the stack by executing them
-		ArrayList<Integer> res = left_operand.compile(table);
+		ArrayList<Byte> res = left_operand.compile(table);
 		res.addAll(0, right_operand.compile(table));
 		
 		// execute the appropriate operator
 		switch(operation) {
 			case ADD:
-				res.add(96); // 0x60, iadd
+				res.add((byte)96); // 0x60, iadd
 				break;
 			case SUB:
-				res.add(100); // 0x64, isub
+				res.add((byte)100); // 0x64, isub
 				break;
 			case MUL:
-				res.add(104); // 0x68, imul
+				res.add((byte)104); // 0x68, imul
 				break;
 			case DIV:
-				res.add(108); // 0x6c, idiv
+				res.add((byte)108); // 0x6c, idiv
 				break;
 		}
 
@@ -322,8 +333,8 @@ class ComparisonExpr implements Expr {
 		right_operand = right;
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
-		ArrayList<Integer> res = new ArrayList<Integer>();
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Byte> res = new ArrayList<Byte>();
 
 		// push the 2 expressions on the stack and then 
 		// execute the appropriate comparison operation,
@@ -339,7 +350,7 @@ class ComparisonExpr implements Expr {
 }
 
 interface Stmt {
-	public ArrayList<Integer> compile(SymbolTable table);
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException;
 }
 
 class CompoundStmt implements Stmt {
@@ -349,8 +360,8 @@ class CompoundStmt implements Stmt {
 		statements.add(s);
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
-		ArrayList<Integer> res = new ArrayList<Integer>();
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Byte> res = new ArrayList<Byte>();
 		
 		for (Stmt s : statements) {
 			res.addAll(0, s.compile(table));
@@ -367,7 +378,7 @@ class BlockStmt implements Stmt {
 		statements = cs;
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
 		return statements.compile(table);
 	}
 }
@@ -381,13 +392,15 @@ class AssignStmt implements Stmt {
 		expression = e;
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
 		Symbol sym = table.lookup(identifier);
 		assert(sym.mut == Mutability.VAR);
 
-		ArrayList<Integer> exprCode = expression.compile(table);
-		exprCode.add(54); // 0x36, istore
-		exprCode.add(sym.index); // load from index
+		ArrayList<Byte> exprCode = expression.compile(table);
+		exprCode.add((byte)54); // 0x36, istore
+		exprCode.add((byte)sym.index); // load from index
+
+		return exprCode;
 	}
 }
 
@@ -402,31 +415,33 @@ class IfStmt implements Stmt {
 		false_case = fa;
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
-		ArrayList<Integer> condCode = condition.compile(table);
-		ArrayList<Integer> true_code = true_case.compile(table);
-		ArrayList<Integer> false_code = false_case.compile(table);
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Byte> condCode = condition.compile(table);
+		ArrayList<Byte> true_code = true_case.compile(table);
+		ArrayList<Byte> false_code = false_case.compile(table);
 
 		// we append everything onto condCode
-		condCode.add(16);
-		condCode.add(0);
+		condCode.add((byte)16);
+		condCode.add((byte)0);
 		// jump on false, implemented exactly like while statement for info
-		condCode.add(159);
+		condCode.add((byte)159);
 
 		short offset = (short)(true_code.size() + 4);
 		byte upper_byte = (byte)(offset >> 8);
 		byte lower_byte = (byte)(offset & 0xFF);
-		condCode.add((int)upper_byte);
-		condCode.add((int)lower_byte);
+		condCode.add(upper_byte);
+		condCode.add(lower_byte);
 		condCode.addAll(0, true_code);
 
-		condCode.add(167); // jump past else block
+		condCode.add((byte)167); // jump past else block
 		offset = (short)(false_code.size() + 1);
 		upper_byte = (byte)(offset >> 8);
 		lower_byte = (byte)(offset & 0xFF);
-		condCode.add((int)upper_byte);
-		condCode.add((int)lower_byte);
+		condCode.add(upper_byte);
+		condCode.add(lower_byte);
 		condCode.addAll(0, false_code);
+
+		return condCode;
 	}
 }
 
@@ -440,30 +455,30 @@ class WhileStmt implements Stmt {
     statement = s;
   }
 
-  public ArrayList<Integer> compile(SymbolTable table) {
-    ArrayList<Integer> conditionBC = condition.compile(table);
-    ArrayList<Integer> statementBC = statement.compile(table);
+  public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+    ArrayList<Byte> conditionBC = condition.compile(table);
+    ArrayList<Byte> statementBC = statement.compile(table);
 
-    conditionBC.add(16); // push
-    conditionBC.add(0);  // 0 onto stack
+    conditionBC.add((byte)16); // push
+    conditionBC.add((byte)0);  // 0 onto stack
     // 9f, if_icmpeq, springe falls 0 gleich zu condition ergebnis.
     // das heist falls comparison fehlschlaegt (0 auf stack) is dies true
     // und wird gejumped.
-    conditionBC.add(159);
+    conditionBC.add((byte)159);
     // bis nach dem folgenden statement und den jump zuruck zum anfang
     short offset = (short)(statementBC.size() + 4); // goto am ende ist 3 bytes
-    int upper_byte = offset >> 8;
-    int lower_byte = offset & 0xFF;
+    byte upper_byte = (byte) (offset >> 8);
+    byte lower_byte = (byte) (offset & 0xFF);
 
     conditionBC.add(upper_byte);
     conditionBC.add(lower_byte);
     conditionBC.addAll(0, statementBC);
 
     offset = (short)-(conditionBC.size() + 2); // the offset to jump back
-    conditionBC.add(167);                      // a7, goto, spring zum anfang
+    conditionBC.add((byte)167);                      // a7, goto, spring zum anfang
 
-    upper_byte = offset >> 8;
-    lower_byte = offset & 0xFF;
+    upper_byte = (byte)(offset >> 8);
+    lower_byte = (byte)(offset & 0xFF);
 
     conditionBC.add(upper_byte);
     conditionBC.add(lower_byte);
@@ -479,9 +494,9 @@ class PrintStmt implements Stmt {
 		expression = e;
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
-		ArrayList<Integer> res = expression.compile(table);
-		res.add(87); // 0x57, pop
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Byte> res = expression.compile(table);
+		res.add((byte)87); // 0x57, pop
 		return res;
 	}
 }
