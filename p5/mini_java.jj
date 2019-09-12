@@ -7,13 +7,21 @@ public class Parser {
     {
         try {
             SymbolTable sym = new SymbolTable();
+			sym.addFunction("print");
 	        Program res = new Parser(new java.io.FileReader(args[0])).parse();
 			res.addSymbols(sym);
 			ArrayList<Byte> bytecode = res.compile(sym);
 			String bcStr = "";
 
-			for (int op : bytecode) {
-				bcStr = bcStr + Integer.toHexString(op & 0xFF) + " ";
+			for (int i = 0; i < bytecode.size(); ++i)
+			{
+				byte op = bytecode.get(i);
+
+				if (op == 184) {
+					String fnIdent = sym.lookupFunctionIdent(bytecode.get(i + 1));
+					bcStr += "b8 (" + fnIdent + ") ";
+					++i;
+				}
 			}
 
 			MethodObject m = new MethodObject("main", 1, bcStr);
@@ -62,6 +70,8 @@ class SymbolTable {
 	Hashtable<String, Symbol> symbols = new Hashtable<String, Symbol>();
 	int currentIndex = 1;
 
+	ArrayList<String> functions;
+
 	private void checkMultipleDefinition(String id) throws MultipleDefinitionException
 	{
 		if (symbols.containsKey(id))
@@ -76,10 +86,27 @@ class SymbolTable {
 		symbols.put(id, new Symbol(id, value, Mutability.CONST, -1));
 	}
 
+	void addFunction(String ident) {
+		functions.add(ident);
+	}
+
 	void addVariable(String id, int value) throws MultipleDefinitionException
 	{
 		checkMultipleDefinition(id);
 		symbols.put(id, new Symbol(id, value, Mutability.VAR, currentIndex++));
+	}
+
+	int lookupFunctionIndex(String ident) throws UndefinedException {
+		int idx = functions.indexOf(ident);
+		if (idx == -1) {
+			throw new UndefinedException(ident);
+		}
+
+		return idx;
+	}
+
+	String lookupFunctionIdent(int index) {
+		return functions.get(index);
 	}
 
 	Symbol lookup(String id) throws UndefinedException {
@@ -90,10 +117,6 @@ class SymbolTable {
 
 		return symbols.get(id);
 	}
-}
-
-interface Visitor<T> {
-	public void visit(T element);
 }
 
 class Program {
@@ -122,14 +145,15 @@ class Program {
 		ArrayList<Byte> res = new ArrayList<Byte>();
 
 		for (ConstDeclaration cdecl : constDeclarations) {
-			res.addAll(0, cdecl.compile(table));
+			res.addAll(cdecl.compile(table));
 		}
 
 		for (VarDeclaration vdecl : varDeclarations) {
-			res.addAll(0, vdecl.compile(table));
+			res.addAll(vdecl.compile(table));
 		}
 
-		res.addAll(0, statement.compile(table));
+		res.addAll(statement.compile(table));
+		res.add((byte)177);
 		return res;
 	}
 }
@@ -177,6 +201,7 @@ class VarDeclaration {
 		Symbol sym = table.lookup(identifier);
 		ArrayList<Byte> res = new ArrayList<Byte>();
 		res.add((byte)16); // 0x10, bipush
+		System.out.println("pushing " + sym.value);
 		res.add((byte)sym.value); // the value to push
 		res.add((byte)54); // 0x36, istore
 		res.add((byte)sym.index); // the index we're storing this value at
@@ -267,7 +292,7 @@ class BinaryExpr implements Expr {
 	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
 		// push the two expressions onto the stack by executing them
 		ArrayList<Byte> res = left_operand.compile(table);
-		res.addAll(0, right_operand.compile(table));
+		res.addAll(right_operand.compile(table));
 		
 		// execute the appropriate operator
 		switch(operation) {
@@ -300,7 +325,7 @@ enum CompareOp {
 }
 
 class ComparisonExpr implements Expr {
-	CompareOp operation;
+	public CompareOp operation;
 	Expr left_operand;
 	Expr right_operand;
 
@@ -340,8 +365,8 @@ class ComparisonExpr implements Expr {
 		// execute the appropriate comparison operation,
 		// leaving the result of the comparison behind on the stack
 
-		res.addAll(0, left_operand.compile(table));
-		res.addAll(0, right_operand.compile(table));
+		res.addAll(left_operand.compile(table));
+		res.addAll(right_operand.compile(table));
 		
 		// do nothing with operation, this will get lifted
 		// into the enclosing if or while statement.
@@ -364,7 +389,7 @@ class CompoundStmt implements Stmt {
 		ArrayList<Byte> res = new ArrayList<Byte>();
 		
 		for (Stmt s : statements) {
-			res.addAll(0, s.compile(table));
+			res.addAll(s.compile(table));
 		}
 
 		return res;
@@ -420,18 +445,37 @@ class IfStmt implements Stmt {
 		ArrayList<Byte> true_code = true_case.compile(table);
 		ArrayList<Byte> false_code = false_case.compile(table);
 
-		// we append everything onto condCode
-		condCode.add((byte)16);
-		condCode.add((byte)0);
-		// jump on false, implemented exactly like while statement for info
-		condCode.add((byte)159);
+		// lift the condition from CompareExpr into this function
+		CompareOp op = condition.operation;
 
+		switch(op) {
+			case LT:
+				condCode.add((byte) 162); // GTE, a2
+				break;
+			case GT:
+				condCode.add((byte) 164); // LTE, a4
+				break;
+			case LTE:
+				condCode.add((byte) 163); // GT, a3
+				break;
+			case GTE:
+				condCode.add((byte) 161); // LT, a1
+				break;
+			case EQ:
+				condCode.add((byte) 160); // NEQ, a0
+				break;
+			case NEQ:
+				condCode.add((byte) 159); // EQ, 9f
+				break;
+		}
+
+		// jump (true.size() + 1 forward + (3 (jmp codes))
 		short offset = (short)(true_code.size() + 4);
 		byte upper_byte = (byte)(offset >> 8);
 		byte lower_byte = (byte)(offset & 0xFF);
 		condCode.add(upper_byte);
 		condCode.add(lower_byte);
-		condCode.addAll(0, true_code);
+		condCode.addAll(true_code);
 
 		condCode.add((byte)167); // jump past else block
 		offset = (short)(false_code.size() + 1);
@@ -439,7 +483,7 @@ class IfStmt implements Stmt {
 		lower_byte = (byte)(offset & 0xFF);
 		condCode.add(upper_byte);
 		condCode.add(lower_byte);
-		condCode.addAll(0, false_code);
+		condCode.addAll(false_code);
 
 		return condCode;
 	}
@@ -459,12 +503,29 @@ class WhileStmt implements Stmt {
     ArrayList<Byte> conditionBC = condition.compile(table);
     ArrayList<Byte> statementBC = statement.compile(table);
 
-    conditionBC.add((byte)16); // push
-    conditionBC.add((byte)0);  // 0 onto stack
-    // 9f, if_icmpeq, springe falls 0 gleich zu condition ergebnis.
-    // das heist falls comparison fehlschlaegt (0 auf stack) is dies true
-    // und wird gejumped.
-    conditionBC.add((byte)159);
+	CompareOp op = condition.operation;
+
+	switch(op) {
+		case LT:
+			conditionBC.add((byte) 162); // GTE, a2
+			break;
+		case GT:
+			conditionBC.add((byte) 164); // LTE, a4
+			break;
+		case LTE:
+			conditionBC.add((byte) 163); // GT, a3
+			break;
+		case GTE:
+			conditionBC.add((byte) 161); // LT, a1
+			break;
+		case EQ:
+			conditionBC.add((byte) 160); // NEQ, a0
+			break;
+		case NEQ:
+			conditionBC.add((byte) 159); // EQ, 9f
+			break;
+	}
+
     // bis nach dem folgenden statement und den jump zuruck zum anfang
     short offset = (short)(statementBC.size() + 4); // goto am ende ist 3 bytes
     byte upper_byte = (byte) (offset >> 8);
@@ -472,7 +533,7 @@ class WhileStmt implements Stmt {
 
     conditionBC.add(upper_byte);
     conditionBC.add(lower_byte);
-    conditionBC.addAll(0, statementBC);
+    conditionBC.addAll(statementBC);
 
     offset = (short)-(conditionBC.size() + 2); // the offset to jump back
     conditionBC.add((byte)167);                      // a7, goto, spring zum anfang
@@ -496,7 +557,9 @@ class PrintStmt implements Stmt {
 
 	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
 		ArrayList<Byte> res = expression.compile(table);
-		res.add((byte)87); // 0x57, pop
+		res.add((byte) 184);
+		int printIdx = table.lookupFunctionIndex("print");
+		res.add((byte) printIdx); // index of print function, will be replaced by print string later
 		return res;
 	}
 }
