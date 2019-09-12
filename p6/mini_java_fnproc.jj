@@ -1,0 +1,839 @@
+PARSER_BEGIN(Parser)
+import java.util.*;
+
+public class Parser {
+
+	public static String toHexString(int b) {
+		return String.format("%02X", b);		
+	}
+
+    public static void main(String[] args)
+    {
+        try {
+            SymbolTable sym = new SymbolTable();
+			sym.addFunction("print");
+	        Program res = new Parser(new java.io.FileReader(args[0])).parse();
+			res.addSymbols(sym);
+			ArrayList<Byte> bytecode = res.compile(sym);
+			String bcStr = "";
+
+			
+			for (int i = 0; i < bytecode.size(); ++i)
+			{
+				byte op = bytecode.get(i);
+
+				if (op == (byte)184) {
+					byte upper = bytecode.get(++i);
+					byte lower = bytecode.get(++i);
+					short index = (short)(((short)upper << (short)8) | (short)lower);
+					String fnIdent = sym.lookupFunctionIdent((int)index);
+					bcStr += ("b8 (" + fnIdent + ") ");
+				}
+				else
+				{
+					bcStr += toHexString(op & 0xFF) + " ";
+				}
+			}
+
+			bcStr = bcStr.toLowerCase();
+
+			MethodObject m = new MethodObject("main", 1, bcStr);
+
+			System.out.println(bcStr);
+
+			JavaClassFileGenerator classGen = new JavaClassFileGenerator("out", true, true, true);
+			classGen.generateClassFile(m);
+		}
+		catch(Throwable e)
+		{
+			System.out.println("Syntax error: " + e.getMessage());
+		}
+    }
+}
+
+class MultipleDefinitionException extends Exception {
+	public MultipleDefinitionException(String symbol) {
+		super(symbol + " was defined multiple times");
+	}
+}
+
+class UndefinedException extends Exception {
+	public UndefinedException(String symbol) {
+		super(symbol + " is undefined");
+	}
+}
+
+enum Mutability {
+	CONST,
+	VAR
+}
+
+class Symbol {
+	String identifier;
+	int value;
+	Mutability mut;
+	int index;
+
+	Symbol(String ident, int v, Mutability m, int idx) {
+		identifier = ident;
+		value = v;
+		mut = m;
+		index = idx;
+	}
+}
+
+class SymbolTable {
+	Hashtable<String, Symbol> symbols = new Hashtable<String, Symbol>();
+	int currentIndex = 1;
+
+	ArrayList<String> functions = new ArrayList<String>();
+
+	private void checkMultipleDefinition(String id) throws MultipleDefinitionException
+	{
+		if (symbols.containsKey(id))
+		{
+			throw new MultipleDefinitionException("redefinition of " + id);
+		}
+	}
+
+	void addConstant(String id, int value) throws MultipleDefinitionException
+	{
+		checkMultipleDefinition(id);
+		symbols.put(id, new Symbol(id, value, Mutability.CONST, -1));
+	}
+
+	void addFunction(String ident) {
+		functions.add(ident);
+	}
+
+	void addVariable(String id, int value) throws MultipleDefinitionException
+	{
+		checkMultipleDefinition(id);
+		symbols.put(id, new Symbol(id, value, Mutability.VAR, currentIndex++));
+	}
+
+	int lookupFunctionIndex(String ident) throws UndefinedException {
+		int idx = functions.indexOf(ident);
+		if (idx == -1) {
+			throw new UndefinedException(ident);
+		}
+
+		return idx;
+	}
+
+	String lookupFunctionIdent(int index) {
+		return functions.get(index);
+	}
+
+	Symbol lookup(String id) throws UndefinedException {
+		if (!symbols.containsKey(id))
+		{
+			throw new UndefinedException(id + " was not defined");
+		}
+
+		return symbols.get(id);
+	}
+}
+
+class Program {
+	ArrayList<ConstDeclaration> constDeclarations;
+	ArrayList<VarDeclaration> varDeclarations;
+	Stmt statement;
+
+	Program(ArrayList<ConstDeclaration> cdecls, 
+			ArrayList<VarDeclaration> vdecls,
+			Stmt s) {
+		constDeclarations = cdecls;
+		varDeclarations = vdecls;
+		statement = s;
+	}
+
+	public void addSymbols(SymbolTable table) throws MultipleDefinitionException {
+		for (ConstDeclaration cdecl : constDeclarations) {
+			cdecl.addSymbol(table);
+		}
+		for (VarDeclaration vdecl : varDeclarations) {
+			vdecl.addSymbol(table);
+		}
+	}
+
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Byte> res = new ArrayList<Byte>();
+
+		for (ConstDeclaration cdecl : constDeclarations) {
+			res.addAll(cdecl.compile(table));
+		}
+
+		for (VarDeclaration vdecl : varDeclarations) {
+			res.addAll(vdecl.compile(table));
+		}
+
+		res.addAll(statement.compile(table));
+		res.add((byte)177);
+		return res;
+	}
+}
+
+class ConstDeclaration {
+	String identifier;
+	int value;
+
+	ConstDeclaration(String ident, int v) {
+		identifier = ident;
+		value = v;
+	}
+
+	ConstDeclaration(String ident, String v) {
+		this(ident, Integer.parseInt(v));
+	}
+
+	public void addSymbol(SymbolTable table) throws MultipleDefinitionException {
+		table.addConstant(identifier, value);
+	}
+
+	public ArrayList<Byte> compile(SymbolTable table) {
+		return new ArrayList<Byte>();
+	}
+}
+
+class VarDeclaration {
+	String identifier;
+	int value;
+
+	VarDeclaration(String ident, int v) {
+		identifier = ident;
+		value = v;
+	}
+
+	VarDeclaration(String ident, String v) {
+		this(ident, Integer.parseInt(v));
+	}
+
+	public void addSymbol(SymbolTable table) throws MultipleDefinitionException {
+		table.addVariable(identifier, value);
+	}
+
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		Symbol sym = table.lookup(identifier);
+		ArrayList<Byte> res = new ArrayList<Byte>();
+		res.add((byte)16); // 0x10, bipush
+		res.add((byte)sym.value); // the value to push
+		res.add((byte)54); // 0x36, istore
+		res.add((byte)sym.index); // the index we're storing this value at
+
+		return res;
+	}
+}
+
+//public class Symbolizer implements 
+
+interface Expr {
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException;
+}
+
+class Literal implements Expr {
+	int value;
+
+	Literal(int v) { value = v; }
+	Literal(String lit) { this(Integer.parseInt(lit)); }
+
+	public ArrayList<Byte> compile(SymbolTable table) {
+		ArrayList<Byte> res = new ArrayList<Byte>();
+		res.add((byte)16); // 0x10, bipush
+		res.add((byte)value); // push this value onto stack
+
+		return res;
+	}
+}
+
+class IdentExpr implements Expr {
+	String name;
+
+	IdentExpr(String n) { name = n; }
+
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		Symbol sym = table.lookup(name);
+
+		ArrayList<Byte> res = new ArrayList<Byte>();
+
+
+		if (sym.mut == Mutability.CONST) {
+			res.add((byte)16); // byte push
+			res.add((byte)sym.value); // with constant we just push the value
+		}
+		else {
+			res.add((byte)21); // iload
+			res.add((byte)sym.index); // load variable from "index"
+		}
+
+		return res;
+	}
+}
+
+enum BinaryOp {
+	ADD,
+	SUB,
+	MUL,
+	DIV
+}
+
+class BinaryExpr implements Expr {
+	BinaryOp operation;
+	Expr left_operand;
+	Expr right_operand;
+
+	BinaryExpr(String o, Expr left, Expr right) {
+		switch(o) {
+			case "+":
+				operation = BinaryOp.ADD;
+				break;
+			case "-":
+				operation = BinaryOp.SUB;
+				break;
+			case "*":
+				operation = BinaryOp.MUL;
+				break;
+			case "/":
+				operation = BinaryOp.DIV;
+				break;
+			default:
+				throw new IllegalArgumentException();
+		}
+
+		left_operand = left;
+		right_operand = right;
+	}
+
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		// push the two expressions onto the stack by executing them
+		ArrayList<Byte> res = left_operand.compile(table);
+		res.addAll(right_operand.compile(table));
+		
+		// execute the appropriate operator
+		switch(operation) {
+			case ADD:
+				res.add((byte)96); // 0x60, iadd
+				break;
+			case SUB:
+				res.add((byte)100); // 0x64, isub
+				break;
+			case MUL:
+				res.add((byte)104); // 0x68, imul
+				break;
+			case DIV:
+				res.add((byte)108); // 0x6c, idiv
+				break;
+		}
+
+		return res;
+	}
+}
+
+
+enum CompareOp {
+	LT,
+	LTE,
+	GT,
+	GTE,
+	EQ,
+	NEQ
+}
+
+class ComparisonExpr implements Expr {
+	public CompareOp operation;
+	Expr left_operand;
+	Expr right_operand;
+
+	ComparisonExpr(String op, Expr left, Expr right)
+	{
+		switch(op) {
+			case "<":
+				operation = CompareOp.LT;
+				break;
+			case "<=":
+				operation = CompareOp.LTE;
+				break;
+			case ">":
+				operation = CompareOp.GT;
+				break;
+			case ">=":
+				operation = CompareOp.GTE;
+				break;
+			case "==":
+				operation = CompareOp.EQ;
+				break;
+			case "!=":
+				operation = CompareOp.NEQ;
+				break;
+			default:
+				throw new IllegalArgumentException();
+		}
+
+		left_operand = left;
+		right_operand = right;
+	}
+
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Byte> res = new ArrayList<Byte>();
+
+		// push the 2 expressions on the stack and then 
+		// execute the appropriate comparison operation,
+		// leaving the result of the comparison behind on the stack
+
+		res.addAll(left_operand.compile(table));
+		res.addAll(right_operand.compile(table));
+		
+		// do nothing with operation, this will get lifted
+		// into the enclosing if or while statement.
+		return res;
+	}
+}
+
+interface Stmt {
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException;
+}
+
+class CompoundStmt implements Stmt {
+	ArrayList<Stmt> statements = new ArrayList<Stmt>();
+
+	public void add(Stmt s) {
+		statements.add(s);
+	}
+
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Byte> res = new ArrayList<Byte>();
+		
+		for (Stmt s : statements) {
+			res.addAll(s.compile(table));
+		}
+
+		return res;
+	}
+}
+
+class BlockStmt implements Stmt {
+	CompoundStmt statements;
+
+	BlockStmt(CompoundStmt cs) {
+		statements = cs;
+	}
+
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		return statements.compile(table);
+	}
+}
+
+class AssignStmt implements Stmt {
+	String identifier;
+	Expr expression;
+
+	AssignStmt(String ident, Expr e) {
+		identifier = ident;
+		expression = e;
+	}
+
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		Symbol sym = table.lookup(identifier);
+		assert(sym.mut == Mutability.VAR);
+
+		ArrayList<Byte> exprCode = expression.compile(table);
+		exprCode.add((byte)54); // 0x36, istore
+		exprCode.add((byte)sym.index); // load from index
+
+		return exprCode;
+	}
+}
+
+class IfStmt implements Stmt {
+	ComparisonExpr condition;
+	Stmt true_case;
+	Stmt false_case;
+
+	IfStmt(ComparisonExpr comp, Stmt tr, Stmt fa) {
+		condition = comp;
+		true_case = tr;
+		false_case = fa;
+	}
+
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Byte> condCode = condition.compile(table);
+		ArrayList<Byte> true_code = true_case.compile(table);
+		ArrayList<Byte> false_code = null;
+		if (false_case != null)
+		{
+			false_code = false_case.compile(table);
+		}
+
+		// lift the condition from CompareExpr into this function
+		CompareOp op = condition.operation;
+
+		switch(op) {
+			case LT:
+				condCode.add((byte) 162); // GTE, a2
+				break;
+			case GT:
+				condCode.add((byte) 164); // LTE, a4
+				break;
+			case LTE:
+				condCode.add((byte) 163); // GT, a3
+				break;
+			case GTE:
+				condCode.add((byte) 161); // LT, a1
+				break;
+			case EQ:
+				condCode.add((byte) 160); // NEQ, a0
+				break;
+			case NEQ:
+				condCode.add((byte) 159); // EQ, 9f
+				break;
+		}
+
+		// jump (true.size() + 3 forward + (3 (jmp codes))
+
+		short offset = (short)(true_code.size() + 3);
+		if (false_case != null) {
+			offset += 3;
+		}
+		byte upper_byte = (byte)(offset >> 8);
+		byte lower_byte = (byte)(offset & 0xFF);
+		condCode.add(upper_byte);
+		condCode.add(lower_byte);
+		condCode.addAll(true_code);
+
+		if (false_case != null) {
+			condCode.add((byte)167); // jump past else block
+			offset = (short)(false_code.size() + 3);
+			upper_byte = (byte)(offset >> 8);
+			lower_byte = (byte)(offset & 0xFF);
+			condCode.add(upper_byte);
+			condCode.add(lower_byte);
+			condCode.addAll(false_code);
+		}
+
+		return condCode;
+	}
+}
+
+
+class WhileStmt implements Stmt {
+  ComparisonExpr condition;
+  Stmt statement;
+
+  WhileStmt(ComparisonExpr comp, Stmt s) {
+    condition = comp;
+    statement = s;
+  }
+
+  public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+    ArrayList<Byte> conditionBC = condition.compile(table);
+    ArrayList<Byte> statementBC = statement.compile(table);
+
+	CompareOp op = condition.operation;
+
+	switch(op) {
+		case LT:
+			conditionBC.add((byte) 162); // GTE, a2
+			break;
+		case GT:
+			conditionBC.add((byte) 164); // LTE, a4
+			break;
+		case LTE:
+			conditionBC.add((byte) 163); // GT, a3
+			break;
+		case GTE:
+			conditionBC.add((byte) 161); // LT, a1
+			break;
+		case EQ:
+			conditionBC.add((byte) 160); // NEQ, a0
+			break;
+		case NEQ:
+			conditionBC.add((byte) 159); // EQ, 9f
+			break;
+	}
+
+    // bis nach dem folgenden statement und den jump zuruck zum anfang
+    short offset = (short)(statementBC.size() + 6); // goto am ende ist 3 bytes
+    byte upper_byte = (byte) (offset >> 8);
+    byte lower_byte = (byte) (offset & 0xFF);
+
+    conditionBC.add(upper_byte);
+    conditionBC.add(lower_byte);
+    conditionBC.addAll(statementBC);
+
+    offset = (short)-(conditionBC.size()); // the offset to jump back
+    conditionBC.add((byte)167);                      // a7, goto, spring zum anfang
+
+    upper_byte = (byte)(offset >> 8);
+    lower_byte = (byte)(offset & 0xFF);
+
+    conditionBC.add(upper_byte);
+    conditionBC.add(lower_byte);
+
+    return conditionBC;
+  }
+}
+
+class PrintStmt implements Stmt {
+	Expr expression;
+
+	PrintStmt(Expr e) {
+		expression = e;
+	}
+
+	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+		ArrayList<Byte> res = expression.compile(table);
+		res.add((byte) 184);
+		int printIdx = table.lookupFunctionIndex("print");
+		byte upper_byte = (byte) (printIdx >> 8);
+		byte lower_byte = (byte) (printIdx & 0xFF);
+		res.add(upper_byte);
+		res.add(lower_byte); // index of print function, will be replaced later
+		return res;
+	}
+}
+
+PARSER_END(Parser)
+
+SKIP: {
+	" "
+  | "\t"
+  | "\n"
+  | "\r"
+}
+
+TOKEN: {
+    <LPAREN: "(">
+  | <RPAREN: ")">
+  | <OP_ADD_SUB: "+" | "-">
+  | <OP_MUL_DIV: "*" | "/">
+  | <OP_COMPARE: "<" | ">" | "<=" | ">=" | "==" | "!=">
+  | <OP_ASSIGN: "=">
+
+  | <WHILE: "while">
+  | <IF: "if">
+  | <ELSE: "else">
+  | <INT: "int">
+  | <FINAL: "final">
+  | <PRINT: "print">
+
+  | <FUNC: "func">
+  | <VOID: "void">
+  | <RETURN: "return">
+
+  | <NUMBER: "0" | (["1"-"9"](["0"-"9"])*)>
+  | <#DIGIT: ["0"-"9"]>
+  | <#LOWER_LETTER: ["a"-"z"]>
+  | <#UPPER_LETTER: ["A"-"Z"]>
+  | <#LETTER: <LOWER_LETTER> | <UPPER_LETTER>>
+  | <#ALPHANUM: <DIGIT> | <LETTER>>
+  | <IDENT: <LOWER_LETTER> (<ALPHANUM>)*>
+}
+
+Program parse():
+{
+	ArrayList<ConstDeclaration> cds = new ArrayList<ConstDeclaration>();
+	ArrayList<VarDeclaration> vds = new ArrayList<VarDeclaration>();
+	Stmt s;
+}
+{
+	(cds=constDecls() vds=varDecls() s=statement() <EOF> { return new Program(cds, vds, s);})
+}
+
+ArrayList<ConstDeclaration> constDecls():
+{
+	Token ident;
+	Token number;
+	ArrayList<ConstDeclaration> cds = new ArrayList<ConstDeclaration>();
+}
+{
+	(<FINAL> <INT>
+		ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
+		{
+			cds.add(new ConstDeclaration(ident.image, number.image));
+		}
+		("," ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
+		{
+			cds.add(new ConstDeclaration(ident.image, number.image));
+		}
+		)* ";"
+		{
+			return cds;
+		})
+}
+
+ArrayList<VarDeclaration> varDecls():
+{
+	Token ident;
+	Token number;
+	ArrayList<VarDeclaration> vds = new ArrayList<VarDeclaration>();
+}
+{
+	(<INT> 
+		ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
+		{
+			vds.add(new VarDeclaration(ident.image, number.image));
+			number = null; // reset to null because this could be unused
+		}
+		("," ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)?
+		{
+			if (number != null) {
+				vds.add(new VarDeclaration(ident.image, number.image));
+			}
+			else {
+				vds.add(new VarDeclaration(ident.image, 0));
+			}
+		})* ";"
+		{
+			return vds;
+		})
+}
+
+Expr expression():
+{
+	Expr e;
+}
+{
+	(e=sum() {
+		return e;
+	})
+}
+
+Expr sum():
+{
+	Token op;
+	Expr e1;
+	Expr e2;
+}
+{
+	(e1=product() (op=<OP_ADD_SUB> e2=product() {
+		e1 = new BinaryExpr(op.image, e1, e2);
+	})* {
+		return e1;
+	})
+}
+
+Expr product():
+{
+	Token op;
+	Expr e1;
+	Expr e2;
+}
+{
+	(e1=term() (op=<OP_MUL_DIV> e2=term() {
+		e1 = new BinaryExpr(op.image, e1, e2);
+	})* {
+		return e1;
+	})
+}
+
+
+Expr term():
+{
+	Token ident;
+	Token num;
+	Expr e;
+}
+{
+	(num=<NUMBER> {
+		return new Literal(num.image);
+	})
+  | (ident=<IDENT> {
+	    return new IdentExpr(ident.image);
+    })
+  | ("(" e=expression() ")" {
+	    return e;
+    })
+}
+
+ComparisonExpr condition():
+{
+	Expr e1;
+	Expr e2;
+	Token op;
+}
+{
+	(e1=expression() op=<OP_COMPARE> e2=expression() {
+		return new ComparisonExpr(op.image, e1, e2);
+	})
+}
+
+Stmt statement():
+{
+	Stmt s;
+}
+{
+    (s=assignStatement() { return s; })
+  | (s=whileStatement() { return s; })
+  | (s=printStatement() { return s; })
+  | (s=ifStatement() { return s; })
+  | ("{" s=compoundStatement() "}" { return s; })
+}
+
+AssignStmt assignStatement():
+{
+	Token ident;
+	Expr e;
+}
+{
+	(ident=<IDENT> <OP_ASSIGN> e=expression() ";" {
+		return new AssignStmt(ident.image, e);
+	})
+}
+
+WhileStmt whileStatement():
+{
+	ComparisonExpr cond;
+	Stmt s;
+}
+{
+	(<WHILE> cond=condition() s=statement() {
+		return new WhileStmt(cond, s);
+	})
+}
+
+PrintStmt printStatement():
+{
+	Expr e;
+}
+{
+	(<PRINT> "(" e=expression() ")" ";" {
+		return new PrintStmt(e);
+	})
+}
+
+IfStmt ifStatement():
+{
+	ComparisonExpr cond;
+	Stmt true_statement;
+	Stmt false_statement;
+}
+{
+	(<IF> cond=condition() true_statement=statement() false_statement=optElse() {
+		return new IfStmt(cond, true_statement, false_statement);
+	})
+}
+
+CompoundStmt compoundStatement():
+{
+	Stmt s;
+	CompoundStmt cs = new CompoundStmt();
+}
+{
+	(s = statement() {
+		cs.add(s);
+	})*
+	{
+		return cs;
+	}
+}
+
+Stmt optElse():
+{
+	Stmt s = null;
+}
+{
+	(<ELSE> s=statement())?
+	{
+		return s;
+	}
+}
