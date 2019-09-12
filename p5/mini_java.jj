@@ -10,6 +10,10 @@ public class Parser {
 	        Program res = new Parser(new java.io.FileReader(args[0])).parse();
 			res.addSymbols(sym);
 			ArrayList<Integer> bytecode = res.compile(sym);
+			
+			for (Integer bc : bytecode) {
+				System.out.println(bc);
+			}
 		}
 		catch(Throwable e)
 		{
@@ -192,6 +196,8 @@ class Literal implements Expr {
 		ArrayList<Integer> res = new ArrayList<Integer>();
 		res.add(16); // 0x10, bipush
 		res.add(value); // push this value onto stack
+
+		return res;
 	}
 }
 
@@ -339,7 +345,7 @@ class ComparisonExpr implements Expr {
 }
 
 interface Stmt {
-	public ArrayList<Integer> compile(SymbolTable table);
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException;
 }
 
 class CompoundStmt implements Stmt {
@@ -349,7 +355,7 @@ class CompoundStmt implements Stmt {
 		statements.add(s);
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
 		ArrayList<Integer> res = new ArrayList<Integer>();
 		
 		for (Stmt s : statements) {
@@ -367,7 +373,7 @@ class BlockStmt implements Stmt {
 		statements = cs;
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
 		return statements.compile(table);
 	}
 }
@@ -381,13 +387,15 @@ class AssignStmt implements Stmt {
 		expression = e;
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
 		Symbol sym = table.lookup(identifier);
 		assert(sym.mut == Mutability.VAR);
 
 		ArrayList<Integer> exprCode = expression.compile(table);
 		exprCode.add(54); // 0x36, istore
 		exprCode.add(sym.index); // load from index
+
+		return exprCode;
 	}
 }
 
@@ -402,7 +410,7 @@ class IfStmt implements Stmt {
 		false_case = fa;
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
 		ArrayList<Integer> condCode = condition.compile(table);
 		ArrayList<Integer> true_code = true_case.compile(table);
 		ArrayList<Integer> false_code = false_case.compile(table);
@@ -427,6 +435,8 @@ class IfStmt implements Stmt {
 		condCode.add((int)upper_byte);
 		condCode.add((int)lower_byte);
 		condCode.addAll(0, false_code);
+
+		return condCode;
 	}
 }
 
@@ -440,7 +450,7 @@ class WhileStmt implements Stmt {
     statement = s;
   }
 
-  public ArrayList<Integer> compile(SymbolTable table) {
+  public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
     ArrayList<Integer> conditionBC = condition.compile(table);
     ArrayList<Integer> statementBC = statement.compile(table);
 
@@ -479,7 +489,7 @@ class PrintStmt implements Stmt {
 		expression = e;
 	}
 
-	public ArrayList<Integer> compile(SymbolTable table) {
+	public ArrayList<Integer> compile(SymbolTable table) throws UndefinedException {
 		ArrayList<Integer> res = expression.compile(table);
 		res.add(87); // 0x57, pop
 		return res;
