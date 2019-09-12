@@ -250,6 +250,15 @@ class AssignStmt implements Stmt {
 		identifier = ident;
 		expression = e;
 	}
+
+	public ArrayList<Integer> compile(SymbolTable table) {
+		Symbol sym = table.lookup(identifier);
+		assert(sym.mut == Mutability.VAR);
+
+		ArrayList<Integer> exprCode = expression.compile(table);
+		exprCode.add(54);
+		exprCode.add(sym.index);
+	}
 }
 
 class IfStmt implements Stmt {
@@ -262,16 +271,75 @@ class IfStmt implements Stmt {
 		true_case = tr;
 		false_case = fa;
 	}
+
+	public ArrayList<Integer> compile(SymbolTable table) {
+		ArrayList<Integer> condCode = condition.compile(table);
+		ArrayList<Integer> true_code = true_case.compile(table);
+		ArrayList<Integer> false_code = false_case.compile(table);
+
+		// we append everything onto condCode
+		condCode.add(16);
+		condCode.add(0);
+		// jump on false, implemented exactly like while statement for info
+		condCode.add(159);
+
+		short offset = (short)(true_code.size() + 4);
+		byte upper_byte = (byte)(offset >> 8);
+		byte lower_byte = (byte)(offset & 0xFF);
+		condCode.add(upper_byte);
+		condCode.add(lower_byte);
+		condCode.addAll(0, true_code);
+
+		condCode.add(167); // jump past else block
+		offset = (short)(false_code.size() + 1);
+		upper_byte = (short)(offset >> 8);
+		lower_byte = (short)(offset & 0xFF);
+		condCode.add(upper_byte);
+		condCode.add(lower_byte);
+		condCode.addAll(0, false_code);
+	}
 }
 
-class WhileStmt implements Stmt {
-	ComparisonExpr condition;
-	Stmt statement;
 
-	WhileStmt(ComparisonExpr comp, Stmt s) {
-		condition = comp;
-		statement = s;
-	}
+class WhileStmt implements Stmt {
+  ComparisonExpr condition;
+  Stmt statement;
+
+  WhileStmt(ComparisonExpr comp, Stmt s) {
+    condition = comp;
+    statement = s;
+  }
+
+  public ArrayList<Integer> compile(SymbolTable table) {
+    ArrayList<Integer> conditionBC = condition.compile(table);
+    ArrayList<Integer> statementBC = statement.compile(table);
+
+    conditionBC.add(16); // push
+    conditionBC.add(0);  // 0 onto stack
+    // 9f, if_icmpeq, springe falls 0 gleich zu condition ergebnis.
+    // das heist falls comparison fehlschlaegt (0 auf stack) is dies true
+    // und wird gejumped.
+    conditionBC.add(159);
+    // bis nach dem folgenden statement und den jump zuruck zum anfang
+    short offset = (short)(statementBC.size() + 4); // goto am ende ist 3 bytes
+    int upper_byte = offset >> 8;
+    int lower_byte = offset & 0xFF;
+
+    conditionBC.add(upper_byte);
+    conditionBC.add(lower_byte);
+    conditionBC.addAll(0, statementBC);
+
+    offset = (short)-(conditionBC.size() + 2); // the offset to jump back
+    conditionBC.add(167);                      // a7, goto, spring zum anfang
+
+    upper_byte = offset >> 8;
+    lower_byte = offset & 0xFF;
+
+    conditionBC.add(upper_byte);
+    conditionBC.add(lower_byte);
+
+    return conditionBC;
+  }
 }
 
 class PrintStmt implements Stmt {
@@ -337,7 +405,7 @@ ArrayList<ConstDeclaration> constDecls():
 		{
 			cds.add(new ConstDeclaration(ident.image, number.image));
 		}
-		(ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
+		("," ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
 		{
 			cds.add(new ConstDeclaration(ident.image, number.image));
 		}
@@ -360,7 +428,7 @@ ArrayList<VarDeclaration> varDecls():
 			vds.add(new VarDeclaration(ident.image, number.image));
 			number = null; // reset to null because this could be unused
 		}
-		(ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)?
+		("," ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)?
 		{
 			if (number != null) {
 				vds.add(new VarDeclaration(ident.image, number.image));
@@ -448,11 +516,11 @@ Stmt statement():
 	Stmt s;
 }
 {
-	(<IDENT> <OP_ASSIGN> expression() ";")
+    (s=assignStatement() { return s; })
   | (s=whileStatement() { return s; })
   | (s=printStatement() { return s; })
   | (s=ifStatement() { return s; })
-  | ("{" s=compoundStatement() "}")
+  | ("{" s=compoundStatement() "}" { return s; })
 }
 
 AssignStmt assignStatement():
@@ -482,7 +550,7 @@ PrintStmt printStatement():
 	Expr e;
 }
 {
-	(<PRINT> "(" e=expression() ")" {
+	(<PRINT> "(" e=expression() ")" ";" {
 		return new PrintStmt(e);
 	})
 }
