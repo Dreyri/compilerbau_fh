@@ -3,6 +3,10 @@ import java.util.*;
 
 public class Parser {
 
+	public static String toHexString(int b) {
+		return String.format("%02X", b);		
+	}
+
     public static void main(String[] args)
     {
         try {
@@ -13,20 +17,30 @@ public class Parser {
 			ArrayList<Byte> bytecode = res.compile(sym);
 			String bcStr = "";
 
+			
 			for (int i = 0; i < bytecode.size(); ++i)
 			{
 				byte op = bytecode.get(i);
 
-				if (op == 184) {
-					String fnIdent = sym.lookupFunctionIdent(bytecode.get(i + 1));
-					bcStr += "b8 (" + fnIdent + ") ";
-					++i;
+				if (op == (byte)184) {
+					byte upper = bytecode.get(++i);
+					byte lower = bytecode.get(++i);
+					short index = (short)(((short)upper << (short)8) | (short)lower);
+					String fnIdent = sym.lookupFunctionIdent((int)index);
+					bcStr += ("b8 (" + fnIdent + ") ");
+				}
+				else
+				{
+					bcStr += toHexString(op & 0xFF) + " ";
 				}
 			}
 
 			MethodObject m = new MethodObject("main", 1, bcStr);
 
 			System.out.println(bcStr);
+
+			JavaClassFileGenerator classGen = new JavaClassFileGenerator("out", true, true, true);
+			classGen.generateClassFile(m);
 		}
 		catch(Throwable e)
 		{
@@ -70,7 +84,7 @@ class SymbolTable {
 	Hashtable<String, Symbol> symbols = new Hashtable<String, Symbol>();
 	int currentIndex = 1;
 
-	ArrayList<String> functions;
+	ArrayList<String> functions = new ArrayList<String>();
 
 	private void checkMultipleDefinition(String id) throws MultipleDefinitionException
 	{
@@ -201,7 +215,6 @@ class VarDeclaration {
 		Symbol sym = table.lookup(identifier);
 		ArrayList<Byte> res = new ArrayList<Byte>();
 		res.add((byte)16); // 0x10, bipush
-		System.out.println("pushing " + sym.value);
 		res.add((byte)sym.value); // the value to push
 		res.add((byte)54); // 0x36, istore
 		res.add((byte)sym.index); // the index we're storing this value at
@@ -469,8 +482,8 @@ class IfStmt implements Stmt {
 				break;
 		}
 
-		// jump (true.size() + 1 forward + (3 (jmp codes))
-		short offset = (short)(true_code.size() + 4);
+		// jump (true.size() + 3 forward + (3 (jmp codes))
+		short offset = (short)(true_code.size() + 6);
 		byte upper_byte = (byte)(offset >> 8);
 		byte lower_byte = (byte)(offset & 0xFF);
 		condCode.add(upper_byte);
@@ -478,7 +491,7 @@ class IfStmt implements Stmt {
 		condCode.addAll(true_code);
 
 		condCode.add((byte)167); // jump past else block
-		offset = (short)(false_code.size() + 1);
+		offset = (short)(false_code.size() + 3);
 		upper_byte = (byte)(offset >> 8);
 		lower_byte = (byte)(offset & 0xFF);
 		condCode.add(upper_byte);
@@ -527,7 +540,7 @@ class WhileStmt implements Stmt {
 	}
 
     // bis nach dem folgenden statement und den jump zuruck zum anfang
-    short offset = (short)(statementBC.size() + 4); // goto am ende ist 3 bytes
+    short offset = (short)(statementBC.size() + 6); // goto am ende ist 3 bytes
     byte upper_byte = (byte) (offset >> 8);
     byte lower_byte = (byte) (offset & 0xFF);
 
@@ -535,7 +548,7 @@ class WhileStmt implements Stmt {
     conditionBC.add(lower_byte);
     conditionBC.addAll(statementBC);
 
-    offset = (short)-(conditionBC.size() + 2); // the offset to jump back
+    offset = (short)-(conditionBC.size()); // the offset to jump back
     conditionBC.add((byte)167);                      // a7, goto, spring zum anfang
 
     upper_byte = (byte)(offset >> 8);
@@ -559,7 +572,10 @@ class PrintStmt implements Stmt {
 		ArrayList<Byte> res = expression.compile(table);
 		res.add((byte) 184);
 		int printIdx = table.lookupFunctionIndex("print");
-		res.add((byte) printIdx); // index of print function, will be replaced by print string later
+		byte upper_byte = (byte) (printIdx >> 8);
+		byte lower_byte = (byte) (printIdx & 0xFF);
+		res.add(upper_byte);
+		res.add(lower_byte); // index of print function, will be replaced later
 		return res;
 	}
 }
