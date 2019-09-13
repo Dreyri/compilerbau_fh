@@ -1,0 +1,158 @@
+Übung 39 
+
+
+//Programm aus Aufgabe 37
+final int n = 1;
+int fib0 = 0, fib1 = 1, fib2 = 0, i = 1;
+{
+while i<=n {
+fib2 = fib1;
+fib1 = fib0;
+fib0 = fib1 + fib2;
+i = i + 1;
+} // block2
+print(fib0);
+} // block1
+
+
+Aufgabe 1a)
+
+//Übersetzung des Mini-Java-Programms aus Aufgabe 37 in Z-Mini-Java-Code
+
+//mit update Aufbau einer Symbtabelle, belegung hs
+update(final int n = 1; int fib0=0, fib1=1, fib2=0, i=1;st0,h0) = (st,h)
+mit 
+st = [n/(const,1),fib0/(var,0),fib1/(var,1),fib2/(var,2),i/(var,3)]
+h = [0/0,1/1,2/0,3/1]
+
+cmdtrans(block1,st)
+
+//cmdtrans statement übersetzung, da while 
+= cmdtrans(while i<=n block2,st)
+  cmdtrans(print(fib0);,st)
+
+= a0:     condtrans(i<=n,st)
+  JMC a1 //jmc anext +1
+  cmdtrans(block2,st)  //cmdtrans(stmt,st) block 2 steht für alles in dem block 
+  JMP a0 //jmp anext
+  
+a1:   exptrans(fib0,st)
+	  POP
+
+= a0: exptrans(i,st)
+	  exptrans(n,st)
+	  LE
+      JMC a1
+	  
+	  cmdtrans(fib2 = fib1;, st)
+	  cmdtrans(fib1 = fib0;, st)
+	  cmdtrans(fib0 = fib1+fib2;, st)
+      cmdtrans(i = i+1, st)
+	  JMP a0
+a1:   LOD 0
+	  POP
+	  
+= a0: LOD 3
+	  LIT 1
+	  LE
+	  JMC a1
+	  exptrans(fib1, st)
+	  STO 2
+	  exptrans(fib0, st)
+	  STO 1
+	  exptrans(fib1+fib2, st)
+
+	  STO 0
+	  exptrans(i+1, st)
+	  STO 3
+	  JMP a0
+a1:   LOD 0
+	  POP
+= a0: LOD 3
+	  LIT 1
+	  LE
+	  JMC a1
+	  LOD 1
+	  STO 2
+	  LOD 0
+	  STO 1
+	  exptrans(fib1, st)
+	  exptrans(fib2, st)
+	  ADD
+	  STO 0
+	  exptrans(i, st)
+	  exptrans(1, st)
+	  ADD
+	  STO 3
+	  JMP a0
+a1:   LOD 0
+	  POP
+= a0: LOD 3
+
+
+LIT 1      
+LE
+JMC a1
+LOD 1
+STO 2
+LOD 0
+STO 1
+LOD 1
+LOD 2
+ADD
+STO 0
+LOD 3
+LIT 1
+ADD
+STO 3
+JMP a0
+a1: LOD 0
+POP
+
+1: LOD 3
+2: LIT 1
+3: LE
+4: JMC 18
+5: LOD 1
+6: STO 2
+7: LOD 0
+8: STO 1
+9: LOD 1
+10: LOD 2
+11: ADD
+12: STO 0
+13: LOD 3
+14: LIT 1
+15: ADD
+16: STO 3
+17: JMP 1
+18: LOD 0
+19: POP
+20:
+
+
+
+(1, [] , [0/0,1/1,2/0,3/1])
+(2, [1] , [0/0,1/1,2/0,3/1])
+(3, [1,1] , [0/0,1/1,2/0,3/1])
+(4, [1] , [0/0,1/1,2/0,3/1])
+(5, [] , [0/0,1/1,2/0,3/1])
+(6, [1] , [0/0,1/1,2/0,3/1])
+(7, [] , [0/0,1/1,2/1,3/1])
+(8, [0] , [0/0,1/1,2/1,3/1])
+(9, [] , [0/0,1/0,2/1,3/1])
+(10, [0] , [0/0,1/0,2/1,3/1])
+(11, [0,1] , [0/0,1/0,2/1,3/1])
+(12, [1] , [0/0,1/0,2/1,3/1])
+(13, [] , [0/1,1/0,2/1,3/1])
+(14, [1] , [0/1,1/0,2/1,3/1])
+(15, [1,1] , [0/1,1/0,2/1,3/1])
+(16, [2] , [0/1,1/0,2/1,3/1])
+(17, [] , [0/1,1/0,2/1,3/2])
+(1, [] , [0/1,1/0,2/1,3/2])
+(2, [2] , [0/1,1/0,2/1,3/2])
+(3, [1,2] , [0/1,1/0,2/1,3/2])
+(4, [0] , [0/1,1/0,2/1,3/2])
+(18, [] , [0/1,1/0,2/1,3/2])
+(19, [1] , [0/1,1/0,2/1,3/2])
+(20, , [0/1,1/0,2/1,3/2])
