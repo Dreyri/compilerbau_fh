@@ -737,7 +737,7 @@ Expr term():
 	(num=<NUMBER> {
 		return new Literal(num.image);
 	})
-  | (ident=<IDENT> {
+  | (ident=<IDENT> (functionCall)? {
 	    return new IdentExpr(ident.image);
     })
   | ("(" e=expression() ")" {
@@ -759,14 +759,28 @@ ComparisonExpr condition():
 
 Stmt statement():
 {
+	Expr e;
 	Stmt s;
+	Token ident;
 }
 {
-    (s=assignStatement() { return s; })
+    (ident=<IDENT> (e=assignStatement() { 
+		return new AssignStmt(ident.image, e); 
+	}) | functionCall())
   | (s=whileStatement() { return s; })
   | (s=printStatement() { return s; })
   | (s=ifStatement() { return s; })
   | ("{" s=compoundStatement() "}" { return s; })
+}
+
+Expr assignStatement():
+{
+	Expr e;
+}
+{
+	(<OP_ASSIGN> e=expression() ";" {
+		return e;
+	})
 }
 
 AssignStmt assignStatement():
@@ -836,4 +850,38 @@ Stmt optElse():
 	{
 		return s;
 	}
+}
+
+// the parentheses after an identifier suggest we want to call it
+void functionCall():
+{}
+{
+	("(" expression() ("," expression())* ")")
+}
+
+void function():
+{}
+{
+	(<FUNC> <IDENT> "(" parameters() ")" "{" 
+		routineBlock() 
+		<RETURN> expression() ";"
+	"}")
+}
+
+void procedure():
+{}
+{
+	(<VOID> <IDENT> "(" parameters() ")" "{" routineBlock() "}")
+}
+
+void parameters():
+{}
+{
+	(<INT> <IDENT> ("," <INT> <IDENT>)*)
+}
+
+void routineBlock():
+{}
+{
+	(constDecls() varDecls() statement())
 }
