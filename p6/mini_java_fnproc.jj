@@ -136,42 +136,127 @@ class SymbolTable {
 }
 
 class Program {
-	ArrayList<ConstDeclaration> constDeclarations;
-	ArrayList<VarDeclaration> varDeclarations;
-	Stmt statement;
+    ArrayList<ConstDeclaration> constDeclarations;
+    ArrayList<VarDeclaration> varDeclarations;
+    ArrayList<Procedure> procedures;
+    ArrayList<Function> functions;
 
-	Program(ArrayList<ConstDeclaration> cdecls, 
-			ArrayList<VarDeclaration> vdecls,
-			Stmt s) {
-		constDeclarations = cdecls;
-		varDeclarations = vdecls;
-		statement = s;
+    Stmt statement;
+
+    Program(ArrayList<ConstDeclaration> cdecls, 
+	    ArrayList<VarDeclaration> vdecls,
+	    ArrayList<Procedure> procs,
+	    ArrayList<Function> fns,
+	    Stmt s) {
+	constDeclarations = cdecls;
+	varDeclarations = vdecls;
+	procedures = procs;
+	functions = fns;
+	statement = s;
+    }
+
+    public void addSymbols(SymbolTable table) throws MultipleDefinitionException {
+	for (ConstDeclaration cdecl : constDeclarations) {
+	    cdecl.addSymbol(table);
+	}
+	for (VarDeclaration vdecl : varDeclarations) {
+	    vdecl.addSymbol(table);
+	}
+    }
+
+    public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	ArrayList<Byte> res = new ArrayList<Byte>();
+
+	for (ConstDeclaration cdecl : constDeclarations) {
+	    res.addAll(cdecl.compile(table));
 	}
 
-	public void addSymbols(SymbolTable table) throws MultipleDefinitionException {
-		for (ConstDeclaration cdecl : constDeclarations) {
-			cdecl.addSymbol(table);
-		}
-		for (VarDeclaration vdecl : varDeclarations) {
-			vdecl.addSymbol(table);
-		}
+	for (VarDeclaration vdecl : varDeclarations) {
+	    res.addAll(vdecl.compile(table));
 	}
 
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
-		ArrayList<Byte> res = new ArrayList<Byte>();
+	res.addAll(statement.compile(table));
+	res.add((byte)177);
+	return res;
+    }
+}
 
-		for (ConstDeclaration cdecl : constDeclarations) {
-			res.addAll(cdecl.compile(table));
-		}
+class Parameter
+{
+    // parameters are always int, so no need to store a type
+    String identifier;
 
-		for (VarDeclaration vdecl : varDeclarations) {
-			res.addAll(vdecl.compile(table));
-		}
+    Parameter(String ident) {
+	identifier = ident;
+    }
+}
 
-		res.addAll(statement.compile(table));
-		res.add((byte)177);
-		return res;
-	}
+class RoutineBlock {
+    ArrayList<ConstDeclaration> constDecls;
+    ArrayList<VarDeclaration> varDecls;
+    Stmt statement;
+
+    RoutineBlock(ArrayList<ConstDeclaration> cdecls,
+		 ArrayList<VarDeclaration> vdecls,
+		 Stmt s) {
+	constDecls = cdecls;
+	varDecls = vdecls;
+	statement = s;
+    }
+}
+
+// acts as a base for both procedure and function
+class FunctionBase {
+    String identifier;
+    ArrayList<Parameter> params;
+    RoutineBlock routine;
+
+    FunctionBase(String ident,
+		 ArrayList<Parameter> par,
+		 RoutineBlock r) {
+	identifier = ident;
+	params = par;
+	routine = r;
+    }
+
+    int numberOfArguments() {
+	return params.size();
+    }
+}
+
+class Procedure extends FunctionBase {
+    Procedure(String ident,
+	      ArrayList<Parameter> par,
+	      RoutineBlock r) {
+	super(ident, par, r);
+    }
+}
+
+class Function extends FunctionBase {
+    Expr resultExpression;
+    
+    Function(String ident,
+		 ArrayList<Parameter> par,
+		 RoutineBlock r,
+		 Expr res) {
+	super(ident, par, r);
+	resultExpression = res;
+    }
+}
+
+class CallExpr implements Expr {
+    String identifier;
+    ArrayList<Expr> arguments;
+
+    CallExpr(String ident, ArrayList<Expr> args) {
+	identifier = ident;
+	arguments = args;
+    }
+
+    public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	// TODO
+	return new ArrayList<Byte>();
+    }
 }
 
 class ConstDeclaration {
@@ -228,7 +313,7 @@ class VarDeclaration {
 //public class Symbolizer implements 
 
 interface Expr {
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException;
+    public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException;
 }
 
 class Literal implements Expr {
@@ -631,61 +716,97 @@ TOKEN: {
 
 Program parse():
 {
-	ArrayList<ConstDeclaration> cds = new ArrayList<ConstDeclaration>();
-	ArrayList<VarDeclaration> vds = new ArrayList<VarDeclaration>();
-	Stmt s;
+    ArrayList<ConstDeclaration> cds = new ArrayList<ConstDeclaration>();
+    ArrayList<VarDeclaration> vds = new ArrayList<VarDeclaration>();
+    ArrayList<Procedure> procs = new ArrayList<Procedure>();
+    ArrayList<Function> funcs = new ArrayList<Function>();
+    Stmt s;
 }
 {
-	(cds=constDecls() vds=varDecls() s=statement() <EOF> { return new Program(cds, vds, s);})
+    (cds=constDecls() vds=varDecls() procs=procedureDecls() funcs=functionDecls() s=statement() {
+	return new Program(cds, vds, procs, funcs, s);
+    })
+}
+
+ArrayList<Procedure> procedureDecls():
+{
+    Procedure proc;
+    ArrayList<Procedure> procs = new ArrayList<Procedure>();
+}
+{
+    (proc=procedure() {
+	procs.add(proc);
+    })* {
+	return procs;
+    }
+}
+
+ArrayList<Function> functionDecls():
+{
+    Function fn;
+    ArrayList<Function> fns = new ArrayList<Function>();
+}
+{
+    (fn=function() {
+	fns.add(fn);
+    })* {
+	return fns;
+    }
 }
 
 ArrayList<ConstDeclaration> constDecls():
 {
-	Token ident;
-	Token number;
-	ArrayList<ConstDeclaration> cds = new ArrayList<ConstDeclaration>();
+    Token ident;
+    Token number;
+    ArrayList<ConstDeclaration> cds = new ArrayList<ConstDeclaration>();
 }
 {
-	(<FINAL> <INT>
-		ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
-		{
-			cds.add(new ConstDeclaration(ident.image, number.image));
-		}
-		("," ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
-		{
-			cds.add(new ConstDeclaration(ident.image, number.image));
-		}
-		)* ";"
-		{
-			return cds;
-		})
+    (<FINAL> <INT>
+     ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
+	{
+	    cds.add(new ConstDeclaration(ident.image, number.image));
+	}
+     ("," ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
+	 {
+	     cds.add(new ConstDeclaration(ident.image, number.image));
+	 }
+      )* ";")? {
+	return cds;
+    }
 }
 
 ArrayList<VarDeclaration> varDecls():
 {
-	Token ident;
-	Token number;
-	ArrayList<VarDeclaration> vds = new ArrayList<VarDeclaration>();
+    Token ident;
+    Token number = null;
+    ArrayList<VarDeclaration> vds = new ArrayList<VarDeclaration>();
 }
 {
 	(<INT> 
-		ident=<IDENT> <OP_ASSIGN> number=<NUMBER>
-		{
-			vds.add(new VarDeclaration(ident.image, number.image));
-			number = null; // reset to null because this could be unused
+	 ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)?
+	    {
+		if (number != null) {
+		    vds.add(new VarDeclaration(ident.image, number.image));
 		}
-		("," ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)?
-		{
-			if (number != null) {
-				vds.add(new VarDeclaration(ident.image, number.image));
-			}
-			else {
-				vds.add(new VarDeclaration(ident.image, 0));
-			}
-		})* ";"
-		{
-			return vds;
-		})
+		else
+		    {
+			vds.add(new VarDeclaration(ident.image, number.image));
+		    }
+		number = null; // reset to null because this could be unused
+	    }
+	 ("," ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)? {
+	     if (number != null) {
+		 vds.add(new VarDeclaration(ident.image, number.image));
+	     }
+	     else {
+		 vds.add(new VarDeclaration(ident.image, 0));
+	     }
+	     number = null;
+	 })* ";"
+	 )?
+	    {
+		return vds;
+	    }
 }
 
 Expr expression():
@@ -732,17 +853,20 @@ Expr term():
 	Token ident;
 	Token num;
 	Expr e;
+	ArrayList<Expr> args;
 }
 {
-	(num=<NUMBER> {
-		return new Literal(num.image);
-	})
-  | (ident=<IDENT> (functionCall)? {
-	    return new IdentExpr(ident.image);
+    (num=<NUMBER> {
+	return new Literal(num.image);
     })
-  | ("(" e=expression() ")" {
-	    return e;
-    })
+	| (ident=<IDENT> (args=functionCall() {
+		    return new CallExpr(ident.image, args);
+		})? {
+		return new IdentExpr(ident.image);
+	    })
+	| ("(" e=expression() ")" {
+		return e;
+	    })
 }
 
 ComparisonExpr condition():
@@ -780,17 +904,6 @@ Expr assignStatement():
 {
 	(<OP_ASSIGN> e=expression() ";" {
 		return e;
-	})
-}
-
-AssignStmt assignStatement():
-{
-	Token ident;
-	Expr e;
-}
-{
-	(ident=<IDENT> <OP_ASSIGN> e=expression() ";" {
-		return new AssignStmt(ident.image, e);
 	})
 }
 
@@ -853,35 +966,72 @@ Stmt optElse():
 }
 
 // the parentheses after an identifier suggest we want to call it
-void functionCall():
-{}
+ArrayList<Expr> functionCall():
 {
-	("(" expression() ("," expression())* ")")
+    Expr e;
+    ArrayList<Expr> args = new ArrayList<Expr>();
+}
+{
+    ("(" e=expression() {
+	args.add(e);
+    } ("," e=expression() {
+	    args.add(e);
+	})* ")" {
+	return args;
+    })
 }
 
-void function():
-{}
+Function function():
 {
-	(<FUNC> <IDENT> "(" parameters() ")" "{" 
-		routineBlock() 
-		<RETURN> expression() ";"
-	"}")
+    Token ident;
+    ArrayList<Parameter> params;
+    RoutineBlock rb;
+    Expr e;
+}
+{
+	(<FUNC> ident=<IDENT> "(" params=parameters() ")" "{" 
+		rb=routineBlock() 
+		<RETURN> e=expression() ";"
+	 "}" {
+	    return new Function(ident.image, params, rb, e);
+	})
 }
 
-void procedure():
-{}
+Procedure procedure():
 {
-	(<VOID> <IDENT> "(" parameters() ")" "{" routineBlock() "}")
+    Token ident;
+    ArrayList<Parameter> params;
+    RoutineBlock rb;
+}
+{
+    (<VOID> ident=<IDENT> "(" params=parameters() ")" "{" rb=routineBlock() "}" {
+	return new Procedure(ident.image, params, rb);
+    })
 }
 
-void parameters():
-{}
+ArrayList<Parameter> parameters():
 {
-	(<INT> <IDENT> ("," <INT> <IDENT>)*)
+    Token ident;
+    ArrayList<Parameter> params = new ArrayList<Parameter>();
+}
+{
+    (<INT> ident=<IDENT> {
+	params.add(new Parameter(ident.image));
+    } ("," <INT> ident=<IDENT> {
+	    params.add(new Parameter(ident.image));
+	})* {
+	return params;
+    })
 }
 
-void routineBlock():
-{}
+RoutineBlock routineBlock():
 {
-	(constDecls() varDecls() statement())
+    ArrayList<ConstDeclaration> cdecls;
+    ArrayList<VarDeclaration> vdecls;
+    Stmt s;
+}
+{
+    (cdecls=constDecls() vdecls=varDecls() s=statement() {
+	return new RoutineBlock(cdecls, vdecls, s);
+    })
 }

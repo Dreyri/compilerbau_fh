@@ -1,0 +1,24 @@
+final int n = 10;
+int last = 0, prev = 1, count = 0, res = 0, anothercount = 0;
+
+void myPrint(int i) {
+    print(i);
+}
+
+{
+	while count < n {
+		res = last + prev;
+		prev = last;
+		last = res;
+		count = count + 1;
+
+		while anothercount < count {
+			anothercount = anothercount + 1;
+		}
+
+		print(anothercount);
+		anothercount = 0;
+	}
+
+	print(res);
+}
