@@ -6,19 +6,19 @@ void myPrint(int i) {
 }
 
 {
-	while count < n {
-		res = last + prev;
-		prev = last;
-		last = res;
-		count = count + 1;
+    while count < n {
+	    res = last + prev;
+	    prev = last;
+	    last = res;
+	    count = count + 1;
 
-		while anothercount < count {
-			anothercount = anothercount + 1;
+	    while anothercount < count {
+		    anothercount = anothercount + 1;
 		}
 
-		print(anothercount);
-		anothercount = 0;
+	    print(anothercount);
+	    anothercount = 0;
 	}
 
-	print(res);
+    myPrint(res);
 }

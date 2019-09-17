@@ -7,47 +7,76 @@ public class Parser {
 		return String.format("%02X", b);		
 	}
 
-    public static void main(String[] args)
+    public static String toBytecodeString(SymbolTable sym, ArrayList<Byte> bytecode) {
+	String bcStr = "";
+	
+	for (int i = 0; i < bytecode.size(); ++i) {
+	    byte op = bytecode.get(i);
+
+	    if (op == (byte) 184) {
+		byte upper = bytecode.get(++i);
+		byte lower = bytecode.get(++i);
+		short index = (short)((short)upper << 8 | (short)lower);
+		String fnIdent = sym.lookupFunctionIdent((int) index);
+		bcStr += ("b8 (" + fnIdent + ") ");
+	    }
+	    else {
+		bcStr += toHexString(op & 0xFF) + " ";
+	    }
+	}
+
+	return bcStr.toLowerCase();
+    }
+
+    public static void main(String[] args) throws Throwable
     {
-        try {
-            SymbolTable sym = new SymbolTable();
-			sym.addFunction("print");
-	        Program res = new Parser(new java.io.FileReader(args[0])).parse();
-			res.addSymbols(sym);
-			ArrayList<Byte> bytecode = res.compile(sym);
-			String bcStr = "";
+        //try {
+	SymbolTable sym = new SymbolTable();
+	sym.addFunction("print");
+	Program res = new Parser(new java.io.FileReader(args[0])).parse();
+	res.addSymbols(sym);
 
-			
-			for (int i = 0; i < bytecode.size(); ++i)
-			{
-				byte op = bytecode.get(i);
+	ArrayList<Byte> mainBytecode = res.compile(sym);
+	String mainBcStr = toBytecodeString(sym, mainBytecode);
 
-				if (op == (byte)184) {
-					byte upper = bytecode.get(++i);
-					byte lower = bytecode.get(++i);
-					short index = (short)(((short)upper << (short)8) | (short)lower);
-					String fnIdent = sym.lookupFunctionIdent((int)index);
-					bcStr += ("b8 (" + fnIdent + ") ");
-				}
-				else
-				{
-					bcStr += toHexString(op & 0xFF) + " ";
-				}
-			}
+	Hashtable<String, ArrayList<Byte>> bytecodes = new Hashtable<String, ArrayList<Byte>>();
+	ArrayList<MethodObject> methods = new ArrayList<MethodObject>();
+	
+	System.out.println("procedures:");
+	for (Procedure p : res.procedures) {
+	    System.out.println(p.identifier + ": " + p.numberOfArguments() + " args");
+	    ArrayList<Byte> bytecode = p.compile(sym.getFunctionTable(p));
+	    String bcStr = toBytecodeString(sym, bytecode);
+	    System.out.println(bcStr);
+	    bytecodes.put(p.identifier, bytecode);
+	    methods.add(new MethodObject(p.identifier, p.numberOfArguments(), bcStr));
+	}
 
-			bcStr = bcStr.toLowerCase();
+	System.out.println("functions:");
+	for (Function fn : res.functions) {
+	    System.out.println(fn.identifier + ": " + fn.numberOfArguments() + " args");
+	    ArrayList<Byte> bytecode = fn.compile(sym.getFunctionTable(fn));
+	    String bcStr = toBytecodeString(sym, bytecode);
+	    System.out.println(bcStr);
+	    bytecodes.put(fn.identifier, bytecode);
+	    methods.add(new MethodObject(fn.identifier, fn.numberOfArguments(), bcStr));
+	}
 
-			MethodObject m = new MethodObject("main", 1, bcStr);
+	System.out.println("main:");
+	MethodObject m = new MethodObject("main", 1, mainBcStr);
 
-			System.out.println(bcStr);
-
-			JavaClassFileGenerator classGen = new JavaClassFileGenerator("out", true, true, true);
-			classGen.generateClassFile(m);
-		}
-		catch(Throwable e)
-		{
-			System.out.println("Syntax error: " + e.getMessage());
-		}
+	System.out.println(mainBcStr);
+	/*
+	JavaClassFileGenerator classGen = new JavaClassFileGenerator("out", true, true, true);
+	classGen.generateClassFile(m);
+	*/
+	/*
+	  }
+	  catch(Throwable e)
+	  {
+	  System.out.println("Syntax error: " + e.getMessage());
+	  }
+	*/
     }
 }
 
@@ -64,87 +93,200 @@ class UndefinedException extends Exception {
 }
 
 enum Mutability {
-	CONST,
-	VAR
+    CONST,
+    VAR
+}
+
+enum Scope {
+    GLOBAL,
+    LOCAL
 }
 
 class Symbol {
-	String identifier;
-	int value;
-	Mutability mut;
-	int index;
+    String identifier;
+    int value;
+    Mutability mut;
+    Scope sc;
+    int index;
 
-	Symbol(String ident, int v, Mutability m, int idx) {
-		identifier = ident;
-		value = v;
-		mut = m;
-		index = idx;
+    Symbol(String ident, int v, Mutability m, Scope s, int idx) {
+	identifier = ident;
+	value = v;
+	mut = m;
+	sc = s;
+	index = idx;
+    }
+
+    ArrayList<Byte> loadInstructions() {
+	ArrayList<Byte> codes = new ArrayList<Byte>();
+
+	if (mut == Mutability.CONST) {
+	    codes.add((byte)16); // bipush, 0x10
+	    codes.add((byte)value);
 	}
+	else {
+	    if (sc == Scope.GLOBAL) {
+		codes.add((byte)178); // getstatic, 0xb2
+
+		byte upper_byte = (byte)(index >> 8);
+		byte lower_byte = (byte)(index & 0xFF);
+		codes.add(upper_byte);
+		codes.add(lower_byte);
+	    }
+	    else {
+		// LOCAL scope
+		codes.add((byte)21); // 0x15, iload
+		codes.add((byte)index);
+	    }
+	}
+	
+	return codes;
+    }
 }
 
-class SymbolTable {
-	Hashtable<String, Symbol> symbols = new Hashtable<String, Symbol>();
-	int currentIndex = 1;
+interface ILookup {
+    public Symbol lookup(String identifier) throws UndefinedException;
+    public int lookupFunctionIndex(String ident) throws UndefinedException;
+}
 
-	ArrayList<String> functions = new ArrayList<String>();
+class FunctionSymbolTable implements ILookup {
+    String functionName;
+    SymbolTable globalSyms;
 
-	private void checkMultipleDefinition(String id) throws MultipleDefinitionException
-	{
-		if (symbols.containsKey(id))
-		{
-			throw new MultipleDefinitionException("redefinition of " + id);
-		}
+    Hashtable<String, Symbol> symbols = new Hashtable<String, Symbol>();
+    int currentIndex;
+
+    FunctionSymbolTable(SymbolTable sym, String name, int startIndex) {
+	globalSyms = sym;
+	functionName = name;
+	currentIndex = startIndex;
+    }
+
+    public void checkMultipleDefinition(String id) throws MultipleDefinitionException
+    {
+	// check global symbols first, then fun/proc symbols
+	globalSyms.checkMultipleDefinition(id);
+	if (symbols.containsKey(id))
+	    {
+		throw new MultipleDefinitionException("redefinition of " + id);
+	    }
+    }
+
+    void addConstant(String id, int value) throws MultipleDefinitionException {
+	checkMultipleDefinition(id);
+	symbols.put(id, new Symbol(id, value, Mutability.CONST, Scope.LOCAL, -1));
+    }
+
+    void addVariable(String id, int value) throws MultipleDefinitionException {
+	checkMultipleDefinition(id);
+	symbols.put(id, new Symbol(id, value, Mutability.VAR, Scope.LOCAL, currentIndex++));
+    }
+
+    public Symbol lookup(String id) throws UndefinedException {
+	try {
+	    return globalSyms.lookup(id);
+	} catch (UndefinedException e) {
+	    if (!symbols.containsKey(id)) {
+		throw new UndefinedException(id + " was not defined");
+	    }
+
+	    return symbols.get(id);
+	}
+    }
+
+    public int lookupFunctionIndex(String ident) throws UndefinedException {
+	return globalSyms.lookupFunctionIndex(ident);
+    }
+}
+
+class SymbolTable implements ILookup {
+    Hashtable<String, Symbol> globalSymbols = new Hashtable<String, Symbol>();
+    int currentIndex = 0;
+
+    public ArrayList<String> functions = new ArrayList<String>();
+
+    Hashtable<String, FunctionSymbolTable> functionSymbolTables =
+	new Hashtable<String, FunctionSymbolTable>();
+
+    public void checkMultipleDefinition(String id) throws MultipleDefinitionException
+    {
+	if (globalSymbols.containsKey(id)) {
+	    throw new MultipleDefinitionException("redefinition of " + id);
+	}
+    }
+
+    void addGlobalConstant(String id, int value) throws MultipleDefinitionException
+    {
+	checkMultipleDefinition(id);
+	globalSymbols.put(id, new Symbol(id, value, Mutability.CONST, Scope.GLOBAL, -1));
+    }
+
+    void addFunction(String ident) {
+	functions.add(ident);
+    }
+
+    void addGlobalVariable(String id, int value) throws MultipleDefinitionException
+    {
+	checkMultipleDefinition(id);
+	globalSymbols.put(id, new Symbol(id, value, Mutability.VAR, Scope.GLOBAL, currentIndex++));
+    }
+
+    public int lookupFunctionIndex(String ident) throws UndefinedException {
+	int idx = functions.indexOf(ident);
+	if (idx == -1) {
+	    throw new UndefinedException(ident);
 	}
 
-	void addConstant(String id, int value) throws MultipleDefinitionException
-	{
-		checkMultipleDefinition(id);
-		symbols.put(id, new Symbol(id, value, Mutability.CONST, -1));
+	return idx;
+    }
+
+    String lookupFunctionIdent(int index) {
+	return functions.get(index);
+    }
+
+    public Symbol lookup(String id) throws UndefinedException {
+	if (!globalSymbols.containsKey(id)) {
+	    throw new UndefinedException(id + " was not defined");
 	}
 
-	void addFunction(String ident) {
-		functions.add(ident);
+	return globalSymbols.get(id);
+    }
+
+    FunctionSymbolTable createFunctionTable(FunctionBase fn) throws MultipleDefinitionException {
+	// if there's no table already, create one
+	if (!functionSymbolTables.containsKey(fn.identifier)) {
+	    functionSymbolTables.put(fn.identifier,
+				     new FunctionSymbolTable(this, fn.identifier,
+							     fn.numberOfArguments()));
+	    addFunction(fn.identifier);
+	}
+	else {
+	    // already defined
+	    throw new MultipleDefinitionException(fn.identifier);
 	}
 
-	void addVariable(String id, int value) throws MultipleDefinitionException
-	{
-		checkMultipleDefinition(id);
-		symbols.put(id, new Symbol(id, value, Mutability.VAR, currentIndex++));
+	return functionSymbolTables.get(fn.identifier);
+    }
+
+    FunctionSymbolTable getFunctionTable(FunctionBase fn) throws UndefinedException {
+	if (!functionSymbolTables.containsKey(fn.identifier)) {
+	    throw new UndefinedException(fn.identifier);
 	}
 
-	int lookupFunctionIndex(String ident) throws UndefinedException {
-		int idx = functions.indexOf(ident);
-		if (idx == -1) {
-			throw new UndefinedException(ident);
-		}
-
-		return idx;
-	}
-
-	String lookupFunctionIdent(int index) {
-		return functions.get(index);
-	}
-
-	Symbol lookup(String id) throws UndefinedException {
-		if (!symbols.containsKey(id))
-		{
-			throw new UndefinedException(id + " was not defined");
-		}
-
-		return symbols.get(id);
-	}
+	return functionSymbolTables.get(fn.identifier);
+    }
 }
 
 class Program {
-    ArrayList<ConstDeclaration> constDeclarations;
-    ArrayList<VarDeclaration> varDeclarations;
-    ArrayList<Procedure> procedures;
-    ArrayList<Function> functions;
+    public ArrayList<GlobalConstDeclaration> constDeclarations;
+    public ArrayList<GlobalVarDeclaration> varDeclarations;
+    public ArrayList<Procedure> procedures;
+    public ArrayList<Function> functions;
 
-    Stmt statement;
+    public Stmt statement;
 
-    Program(ArrayList<ConstDeclaration> cdecls, 
-	    ArrayList<VarDeclaration> vdecls,
+    Program(ArrayList<GlobalConstDeclaration> cdecls, 
+	    ArrayList<GlobalVarDeclaration> vdecls,
 	    ArrayList<Procedure> procs,
 	    ArrayList<Function> fns,
 	    Stmt s) {
@@ -156,27 +298,35 @@ class Program {
     }
 
     public void addSymbols(SymbolTable table) throws MultipleDefinitionException {
-	for (ConstDeclaration cdecl : constDeclarations) {
+	for (GlobalConstDeclaration cdecl : constDeclarations) {
 	    cdecl.addSymbol(table);
 	}
-	for (VarDeclaration vdecl : varDeclarations) {
+	for (GlobalVarDeclaration vdecl : varDeclarations) {
 	    vdecl.addSymbol(table);
+	}
+
+	for (Procedure proc : procedures) {
+	    proc.addSymbols(table.createFunctionTable(proc));
+	}
+
+	for (Function fn : functions) {
+	    fn.addSymbols(table.createFunctionTable(fn));
 	}
     }
 
     public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
 	ArrayList<Byte> res = new ArrayList<Byte>();
 
-	for (ConstDeclaration cdecl : constDeclarations) {
+	for (GlobalConstDeclaration cdecl : constDeclarations) {
 	    res.addAll(cdecl.compile(table));
 	}
 
-	for (VarDeclaration vdecl : varDeclarations) {
+	for (GlobalVarDeclaration vdecl : varDeclarations) {
 	    res.addAll(vdecl.compile(table));
 	}
 
 	res.addAll(statement.compile(table));
-	res.add((byte)177);
+	res.add((byte)177); // b1, simple return
 	return res;
     }
 }
@@ -188,6 +338,10 @@ class Parameter
 
     Parameter(String ident) {
 	identifier = ident;
+    }
+
+    public void addSymbol(FunctionSymbolTable table) throws MultipleDefinitionException {
+	table.addVariable(identifier, 0); // the 0 should be unused
     }
 }
 
@@ -203,11 +357,36 @@ class RoutineBlock {
 	varDecls = vdecls;
 	statement = s;
     }
+
+    public void addSymbols(FunctionSymbolTable table) throws MultipleDefinitionException {
+ 	for (ConstDeclaration cdecl : constDecls) {
+	    cdecl.addSymbol(table);
+	}
+
+	for (VarDeclaration vdecl : varDecls) {
+	    vdecl.addSymbol(table);
+	}
+    }
+
+    public ArrayList<Byte> compile(ILookup syms) throws UndefinedException {
+	ArrayList<Byte> code = new ArrayList<Byte>();
+
+	for (ConstDeclaration cdecl : constDecls) {
+	    code.addAll(cdecl.compile(syms));
+	}
+
+	for (VarDeclaration vdecl : varDecls) {
+	    code.addAll(vdecl.compile(syms));
+	}
+
+	code.addAll(statement.compile(syms));
+	return code;
+    }
 }
 
 // acts as a base for both procedure and function
 class FunctionBase {
-    String identifier;
+    public String identifier;
     ArrayList<Parameter> params;
     RoutineBlock routine;
 
@@ -222,6 +401,14 @@ class FunctionBase {
     int numberOfArguments() {
 	return params.size();
     }
+
+    public void addSymbols(FunctionSymbolTable table) throws MultipleDefinitionException {
+	for (Parameter param : params) {
+	    param.addSymbol(table);
+	}
+
+	routine.addSymbols(table);
+    }
 }
 
 class Procedure extends FunctionBase {
@@ -229,6 +416,12 @@ class Procedure extends FunctionBase {
 	      ArrayList<Parameter> par,
 	      RoutineBlock r) {
 	super(ident, par, r);
+    }
+
+    public ArrayList<Byte> compile(FunctionSymbolTable table) throws UndefinedException {
+	ArrayList<Byte> code = super.routine.compile(table);
+	code.add((byte) 177);
+	return code;
     }
 }
 
@@ -242,6 +435,13 @@ class Function extends FunctionBase {
 	super(ident, par, r);
 	resultExpression = res;
     }
+
+    public ArrayList<Byte> compile(FunctionSymbolTable table) throws UndefinedException {
+	ArrayList<Byte> code = super.routine.compile(table);
+	code.addAll(resultExpression.compile(table));
+	code.add((byte) 172); // ireturn, 0xac, return with value from stack
+	return code;
+    }
 }
 
 class CallExpr implements Expr {
@@ -253,32 +453,64 @@ class CallExpr implements Expr {
 	arguments = args;
     }
 
-    public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
-	// TODO
-	return new ArrayList<Byte>();
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+	ArrayList<Byte> code = new ArrayList<Byte>();
+	// push the expressions onto the stack and then invoke the function
+	code.add((byte) 184); // invoke static
+	int fnIdx = table.lookupFunctionIndex(identifier);
+	byte upper_byte = (byte) (fnIdx >> 8);
+	byte lower_byte = (byte) (fnIdx & 0xFF);
+	code.add(upper_byte);
+	code.add(lower_byte);
+	
+	return code;
     }
 }
 
 class ConstDeclaration {
-	String identifier;
-	int value;
+    String identifier;
+    int value;
 
-	ConstDeclaration(String ident, int v) {
-		identifier = ident;
-		value = v;
-	}
+    ConstDeclaration(String ident, int v) {
+	identifier = ident;
+	value = v;
+    }
 
-	ConstDeclaration(String ident, String v) {
-		this(ident, Integer.parseInt(v));
-	}
+    ConstDeclaration(String ident, String v) {
+	this(ident, Integer.parseInt(v));
+    }
 
-	public void addSymbol(SymbolTable table) throws MultipleDefinitionException {
-		table.addConstant(identifier, value);
-	}
+    public void addSymbol(FunctionSymbolTable table) throws MultipleDefinitionException {
+	table.addConstant(identifier, value);
+    }
 
-	public ArrayList<Byte> compile(SymbolTable table) {
-		return new ArrayList<Byte>();
-	}
+    public ArrayList<Byte> compile(ILookup table) {
+	    
+	return new ArrayList<Byte>();
+    }
+}
+
+class GlobalConstDeclaration {
+    String identifier;
+    int value;
+
+    GlobalConstDeclaration(String ident, int v) {
+	identifier = ident;
+	value = v;
+    }
+
+    GlobalConstDeclaration(String ident, String v) {
+	this(ident, Integer.parseInt(v));
+    }
+
+    public void addSymbol(SymbolTable table) throws MultipleDefinitionException {
+	table.addGlobalConstant(identifier, value);
+    }
+
+    public ArrayList<Byte> compile(SymbolTable table) {
+	// nothing to store into memory, all constants get bipushed
+	return new ArrayList<Byte>();
+    }
 }
 
 class VarDeclaration {
@@ -294,11 +526,11 @@ class VarDeclaration {
 		this(ident, Integer.parseInt(v));
 	}
 
-	public void addSymbol(SymbolTable table) throws MultipleDefinitionException {
+	public void addSymbol(FunctionSymbolTable table) throws MultipleDefinitionException {
 		table.addVariable(identifier, value);
 	}
 
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
 		Symbol sym = table.lookup(identifier);
 		ArrayList<Byte> res = new ArrayList<Byte>();
 		res.add((byte)16); // 0x10, bipush
@@ -310,10 +542,45 @@ class VarDeclaration {
 	}
 }
 
+class GlobalVarDeclaration {
+    String identifier;
+    int value;
+
+    GlobalVarDeclaration(String ident, int v) {
+	identifier = ident;
+	value = v;
+    }
+
+    GlobalVarDeclaration(String ident, String v) {
+	this(ident, Integer.parseInt(v));
+    }
+
+    public void addSymbol(SymbolTable table) throws MultipleDefinitionException {
+	table.addGlobalVariable(identifier, value);
+    }
+
+    public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	Symbol sym = table.lookup(identifier);
+	ArrayList<Byte> res = new ArrayList<Byte>();
+	res.add((byte)16); // 0x10, bipush
+	res.add((byte)sym.value); // the value to push
+	res.add((byte)179); // 0xb3, putstatic
+	
+	short staticIndex = (short)sym.index; // get the index to put it into
+	byte upper_index = (byte)(staticIndex >> 8);
+	byte lower_index = (byte)(staticIndex & 0xFF);
+
+	res.add(upper_index);
+	res.add(lower_index);
+
+	return res;
+    }
+}
+
 //public class Symbolizer implements 
 
 interface Expr {
-    public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException;
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException;
 }
 
 class Literal implements Expr {
@@ -322,7 +589,7 @@ class Literal implements Expr {
 	Literal(int v) { value = v; }
 	Literal(String lit) { this(Integer.parseInt(lit)); }
 
-	public ArrayList<Byte> compile(SymbolTable table) {
+	public ArrayList<Byte> compile(ILookup table) {
 		ArrayList<Byte> res = new ArrayList<Byte>();
 		res.add((byte)16); // 0x10, bipush
 		res.add((byte)value); // push this value onto stack
@@ -336,22 +603,10 @@ class IdentExpr implements Expr {
 
 	IdentExpr(String n) { name = n; }
 
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
 		Symbol sym = table.lookup(name);
 
-		ArrayList<Byte> res = new ArrayList<Byte>();
-
-
-		if (sym.mut == Mutability.CONST) {
-			res.add((byte)16); // byte push
-			res.add((byte)sym.value); // with constant we just push the value
-		}
-		else {
-			res.add((byte)21); // iload
-			res.add((byte)sym.index); // load variable from "index"
-		}
-
-		return res;
+		return sym.loadInstructions();
 	}
 }
 
@@ -389,7 +644,7 @@ class BinaryExpr implements Expr {
 		right_operand = right;
 	}
 
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
 		// push the two expressions onto the stack by executing them
 		ArrayList<Byte> res = left_operand.compile(table);
 		res.addAll(right_operand.compile(table));
@@ -458,7 +713,7 @@ class ComparisonExpr implements Expr {
 		right_operand = right;
 	}
 
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
 		ArrayList<Byte> res = new ArrayList<Byte>();
 
 		// push the 2 expressions on the stack and then 
@@ -475,7 +730,7 @@ class ComparisonExpr implements Expr {
 }
 
 interface Stmt {
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException;
+	public ArrayList<Byte> compile(ILookup table) throws UndefinedException;
 }
 
 class CompoundStmt implements Stmt {
@@ -485,7 +740,7 @@ class CompoundStmt implements Stmt {
 		statements.add(s);
 	}
 
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
 		ArrayList<Byte> res = new ArrayList<Byte>();
 		
 		for (Stmt s : statements) {
@@ -503,7 +758,7 @@ class BlockStmt implements Stmt {
 		statements = cs;
 	}
 
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
 		return statements.compile(table);
 	}
 }
@@ -517,7 +772,7 @@ class AssignStmt implements Stmt {
 		expression = e;
 	}
 
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
 		Symbol sym = table.lookup(identifier);
 		assert(sym.mut == Mutability.VAR);
 
@@ -540,7 +795,7 @@ class IfStmt implements Stmt {
 		false_case = fa;
 	}
 
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
 		ArrayList<Byte> condCode = condition.compile(table);
 		ArrayList<Byte> true_code = true_case.compile(table);
 		ArrayList<Byte> false_code = null;
@@ -609,7 +864,7 @@ class WhileStmt implements Stmt {
     statement = s;
   }
 
-  public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+  public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
     ArrayList<Byte> conditionBC = condition.compile(table);
     ArrayList<Byte> statementBC = statement.compile(table);
 
@@ -665,7 +920,7 @@ class PrintStmt implements Stmt {
 		expression = e;
 	}
 
-	public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
 		ArrayList<Byte> res = expression.compile(table);
 		res.add((byte) 184);
 		int printIdx = table.lookupFunctionIndex("print");
@@ -716,14 +971,14 @@ TOKEN: {
 
 Program parse():
 {
-    ArrayList<ConstDeclaration> cds = new ArrayList<ConstDeclaration>();
-    ArrayList<VarDeclaration> vds = new ArrayList<VarDeclaration>();
+    ArrayList<GlobalConstDeclaration> cds = new ArrayList<GlobalConstDeclaration>();
+    ArrayList<GlobalVarDeclaration> vds = new ArrayList<GlobalVarDeclaration>();
     ArrayList<Procedure> procs = new ArrayList<Procedure>();
     ArrayList<Function> funcs = new ArrayList<Function>();
     Stmt s;
 }
 {
-    (cds=constDecls() vds=varDecls() procs=procedureDecls() funcs=functionDecls() s=statement() {
+    (cds=globalConstDecls() vds=globalVarDecls() procs=procedureDecls() funcs=functionDecls() s=statement() {
 	return new Program(cds, vds, procs, funcs, s);
     })
 }
@@ -775,6 +1030,24 @@ ArrayList<ConstDeclaration> constDecls():
     }
 }
 
+ArrayList<GlobalConstDeclaration> globalConstDecls():
+{
+    Token ident;
+    Token number;
+    ArrayList<GlobalConstDeclaration> gcds = new ArrayList<GlobalConstDeclaration>();
+}
+{
+    (<FINAL> <INT>
+     ident=<IDENT> <OP_ASSIGN> number=<NUMBER> {
+	gcds.add(new GlobalConstDeclaration(ident.image, number.image));
+    }
+     ("," ident=<IDENT> <OP_ASSIGN> number=<NUMBER> {
+	 gcds.add(new GlobalConstDeclaration(ident.image, number.image));
+     })* ";")? {
+	return gcds;
+    }
+}
+
 ArrayList<VarDeclaration> varDecls():
 {
     Token ident;
@@ -807,6 +1080,34 @@ ArrayList<VarDeclaration> varDecls():
 	    {
 		return vds;
 	    }
+}
+
+ArrayList<GlobalVarDeclaration> globalVarDecls():
+{
+    Token ident;
+    Token number = null;
+    ArrayList<GlobalVarDeclaration> gvds = new ArrayList<GlobalVarDeclaration>();
+}
+{
+    (<INT> ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)? {
+	if (number != null) {
+	    gvds.add(new GlobalVarDeclaration(ident.image, number.image));
+	} else {
+	    gvds.add(new GlobalVarDeclaration(ident.image, 0));
+	}
+	number = null;
+    }
+	("," ident=<IDENT> (<OP_ASSIGN> number=<NUMBER>)? {
+	    if (number != null) {
+		gvds.add(new GlobalVarDeclaration(ident.image, number.image));
+	    }
+	    else {
+		gvds.add(new GlobalVarDeclaration(ident.image, 0));
+	    }
+	    number = null;
+	})* ";")? {
+	return gvds;
+    }
 }
 
 Expr expression():
@@ -972,11 +1273,11 @@ ArrayList<Expr> functionCall():
     ArrayList<Expr> args = new ArrayList<Expr>();
 }
 {
-    ("(" e=expression() {
+    ("(" (e=expression() {
 	args.add(e);
     } ("," e=expression() {
 	    args.add(e);
-	})* ")" {
+	})*)? ")" {
 	return args;
     })
 }
@@ -984,27 +1285,27 @@ ArrayList<Expr> functionCall():
 Function function():
 {
     Token ident;
-    ArrayList<Parameter> params;
+    ArrayList<Parameter> params = new ArrayList<Parameter>();
     RoutineBlock rb;
     Expr e;
 }
 {
-	(<FUNC> ident=<IDENT> "(" params=parameters() ")" "{" 
-		rb=routineBlock() 
-		<RETURN> e=expression() ";"
-	 "}" {
-	    return new Function(ident.image, params, rb, e);
-	})
+    (<FUNC> ident=<IDENT> "(" (params=parameters())? ")" "{" 
+     rb=routineBlock() 
+     <RETURN> "(" e=expression() ")" ";"
+     "}" {
+	return new Function(ident.image, params, rb, e);
+    })
 }
 
 Procedure procedure():
 {
     Token ident;
-    ArrayList<Parameter> params;
+    ArrayList<Parameter> params = new ArrayList<Parameter>();
     RoutineBlock rb;
 }
 {
-    (<VOID> ident=<IDENT> "(" params=parameters() ")" "{" rb=routineBlock() "}" {
+    (<VOID> ident=<IDENT> "(" (params=parameters())? ")" "{" rb=routineBlock() "}" {
 	return new Procedure(ident.image, params, rb);
     })
 }
