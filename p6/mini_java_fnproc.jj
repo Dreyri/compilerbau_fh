@@ -32,7 +32,9 @@ public class Parser {
     {
         //try {
 	SymbolTable sym = new SymbolTable();
-	sym.addFunction("print");
+	ArrayList<Parameter> printParams = new ArrayList<Parameter>();
+	printParams.add(null);
+	sym.addFunction(new Procedure("print", printParams, null));
 	Program res = new Parser(new java.io.FileReader(args[0])).parse();
 	res.addSymbols(sym);
 
@@ -92,6 +94,24 @@ class UndefinedException extends Exception {
 	}
 }
 
+class LWertException extends Exception {
+    public LWertException(String symbol) {
+	super(symbol + " is not a variable, possibly const");
+    }
+}
+
+class RWertException extends Exception {
+    public RWertException(String symbol) {
+	super(symbol + "must be one of: variable, constant, function");
+    }
+}
+
+class WrongParametersException extends Exception {
+    public WrongParametersException(int expected, int provided) {
+	super("expected " + expected + " arguments, got " + provided);
+    }
+}
+
 enum Mutability {
     CONST,
     VAR
@@ -142,11 +162,36 @@ class Symbol {
 	
 	return codes;
     }
+
+    ArrayList<Byte> storeInstructions() throws LWertException {
+	ArrayList<Byte> codes = new ArrayList<Byte>();
+
+	if (mut == Mutability.CONST) {
+	    throw new LWertException(identifier);
+	}
+	else {
+	    if (sc == Scope.GLOBAL) {
+		codes.add((byte)179);
+
+		byte upper_byte = (byte)(index >> 8);
+		byte lower_byte = (byte)(index & 0xFF);
+		codes.add(upper_byte);
+		codes.add(lower_byte);
+	    }
+	    else {
+		codes.add((byte)54);
+		codes.add((byte)index);
+	    }
+	}
+
+	return codes;
+    }
 }
 
 interface ILookup {
     public Symbol lookup(String identifier) throws UndefinedException;
-    public int lookupFunctionIndex(String ident) throws UndefinedException;
+    public int lookupFunctionIndex(String ident, int numArgs) throws UndefinedException, WrongParametersException;
+    public FunctionBase lookupFunction(int idx);
 }
 
 class FunctionSymbolTable implements ILookup {
@@ -194,8 +239,12 @@ class FunctionSymbolTable implements ILookup {
 	}
     }
 
-    public int lookupFunctionIndex(String ident) throws UndefinedException {
-	return globalSyms.lookupFunctionIndex(ident);
+    public int lookupFunctionIndex(String ident, int providedArgs) throws UndefinedException, WrongParametersException {
+	return globalSyms.lookupFunctionIndex(ident, providedArgs);
+    }
+
+    public FunctionBase lookupFunction(int idx) {
+	return globalSyms.lookupFunction(idx);
     }
 }
 
@@ -203,7 +252,7 @@ class SymbolTable implements ILookup {
     Hashtable<String, Symbol> globalSymbols = new Hashtable<String, Symbol>();
     int currentIndex = 0;
 
-    public ArrayList<String> functions = new ArrayList<String>();
+    public ArrayList<FunctionBase> functions = new ArrayList<FunctionBase>();
 
     Hashtable<String, FunctionSymbolTable> functionSymbolTables =
 	new Hashtable<String, FunctionSymbolTable>();
@@ -221,8 +270,8 @@ class SymbolTable implements ILookup {
 	globalSymbols.put(id, new Symbol(id, value, Mutability.CONST, Scope.GLOBAL, -1));
     }
 
-    void addFunction(String ident) {
-	functions.add(ident);
+    void addFunction(FunctionBase fn) {
+	functions.add(fn);
     }
 
     void addGlobalVariable(String id, int value) throws MultipleDefinitionException
@@ -231,17 +280,35 @@ class SymbolTable implements ILookup {
 	globalSymbols.put(id, new Symbol(id, value, Mutability.VAR, Scope.GLOBAL, currentIndex++));
     }
 
-    public int lookupFunctionIndex(String ident) throws UndefinedException {
-	int idx = functions.indexOf(ident);
-	if (idx == -1) {
+    public int lookupFunctionIndex(String ident, int providedArgs) throws UndefinedException, WrongParametersException {
+	FunctionBase foundFn = null;
+
+	int idx = 0;
+	for (; idx < functions.size(); ++idx) {
+	    FunctionBase fn = functions.get(idx);
+
+	    if (fn.identifier.equals(ident)) {
+		foundFn = fn;
+		break;
+	    }
+	}
+	
+	if (foundFn == null) {
 	    throw new UndefinedException(ident);
+	}
+	if (foundFn.numberOfArguments() != providedArgs) {
+	    throw new WrongParametersException(foundFn.numberOfArguments(), providedArgs);
 	}
 
 	return idx;
     }
 
+    public FunctionBase lookupFunction(int idx) {
+	return functions.get(idx);
+    }
+
     String lookupFunctionIdent(int index) {
-	return functions.get(index);
+	return functions.get(index).identifier;
     }
 
     public Symbol lookup(String id) throws UndefinedException {
@@ -258,7 +325,7 @@ class SymbolTable implements ILookup {
 	    functionSymbolTables.put(fn.identifier,
 				     new FunctionSymbolTable(this, fn.identifier,
 							     fn.numberOfArguments()));
-	    addFunction(fn.identifier);
+	    addFunction(fn);
 	}
 	else {
 	    // already defined
@@ -314,7 +381,7 @@ class Program {
 	}
     }
 
-    public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException {
+    public ArrayList<Byte> compile(SymbolTable table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 	ArrayList<Byte> res = new ArrayList<Byte>();
 
 	for (GlobalConstDeclaration cdecl : constDeclarations) {
@@ -368,7 +435,7 @@ class RoutineBlock {
 	}
     }
 
-    public ArrayList<Byte> compile(ILookup syms) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup syms) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 	ArrayList<Byte> code = new ArrayList<Byte>();
 
 	for (ConstDeclaration cdecl : constDecls) {
@@ -418,7 +485,7 @@ class Procedure extends FunctionBase {
 	super(ident, par, r);
     }
 
-    public ArrayList<Byte> compile(FunctionSymbolTable table) throws UndefinedException {
+    public ArrayList<Byte> compile(FunctionSymbolTable table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 	ArrayList<Byte> code = super.routine.compile(table);
 	code.add((byte) 177);
 	return code;
@@ -429,14 +496,14 @@ class Function extends FunctionBase {
     Expr resultExpression;
     
     Function(String ident,
-		 ArrayList<Parameter> par,
-		 RoutineBlock r,
-		 Expr res) {
+	     ArrayList<Parameter> par,
+	     RoutineBlock r,
+	     Expr res) {
 	super(ident, par, r);
 	resultExpression = res;
     }
 
-    public ArrayList<Byte> compile(FunctionSymbolTable table) throws UndefinedException {
+    public ArrayList<Byte> compile(FunctionSymbolTable table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 	ArrayList<Byte> code = super.routine.compile(table);
 	code.addAll(resultExpression.compile(table));
 	code.add((byte) 172); // ireturn, 0xac, return with value from stack
@@ -453,11 +520,22 @@ class CallExpr implements Expr {
 	arguments = args;
     }
 
-    public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 	ArrayList<Byte> code = new ArrayList<Byte>();
+
+	for (Expr e : arguments) {
+	    code.addAll(e.compile(table));
+	}
+	
 	// push the expressions onto the stack and then invoke the function
 	code.add((byte) 184); // invoke static
-	int fnIdx = table.lookupFunctionIndex(identifier);
+	int fnIdx = table.lookupFunctionIndex(identifier, arguments.size());
+	FunctionBase fnObj = table.lookupFunction(fnIdx);
+
+	if (fnObj instanceof Procedure) {
+	    throw new RWertException(fnObj.identifier);
+	}
+	    
 	byte upper_byte = (byte) (fnIdx >> 8);
 	byte lower_byte = (byte) (fnIdx & 0xFF);
 	code.add(upper_byte);
@@ -530,7 +608,7 @@ class VarDeclaration {
 		table.addVariable(identifier, value);
 	}
 
-	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException {
 		Symbol sym = table.lookup(identifier);
 		ArrayList<Byte> res = new ArrayList<Byte>();
 		res.add((byte)16); // 0x10, bipush
@@ -580,7 +658,7 @@ class GlobalVarDeclaration {
 //public class Symbolizer implements 
 
 interface Expr {
-    public ArrayList<Byte> compile(ILookup table) throws UndefinedException;
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException;
 }
 
 class Literal implements Expr {
@@ -603,7 +681,7 @@ class IdentExpr implements Expr {
 
 	IdentExpr(String n) { name = n; }
 
-	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 		Symbol sym = table.lookup(name);
 
 		return sym.loadInstructions();
@@ -644,7 +722,7 @@ class BinaryExpr implements Expr {
 		right_operand = right;
 	}
 
-	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 		// push the two expressions onto the stack by executing them
 		ArrayList<Byte> res = left_operand.compile(table);
 		res.addAll(right_operand.compile(table));
@@ -713,7 +791,7 @@ class ComparisonExpr implements Expr {
 		right_operand = right;
 	}
 
-	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 		ArrayList<Byte> res = new ArrayList<Byte>();
 
 		// push the 2 expressions on the stack and then 
@@ -730,7 +808,7 @@ class ComparisonExpr implements Expr {
 }
 
 interface Stmt {
-	public ArrayList<Byte> compile(ILookup table) throws UndefinedException;
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException;
 }
 
 class CompoundStmt implements Stmt {
@@ -740,7 +818,7 @@ class CompoundStmt implements Stmt {
 		statements.add(s);
 	}
 
-	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 		ArrayList<Byte> res = new ArrayList<Byte>();
 		
 		for (Stmt s : statements) {
@@ -758,30 +836,27 @@ class BlockStmt implements Stmt {
 		statements = cs;
 	}
 
-	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 		return statements.compile(table);
 	}
 }
 
 class AssignStmt implements Stmt {
-	String identifier;
-	Expr expression;
+    String identifier;
+    Expr expression;
 
-	AssignStmt(String ident, Expr e) {
-		identifier = ident;
-		expression = e;
-	}
+    AssignStmt(String ident, Expr e) {
+	identifier = ident;
+	expression = e;
+    }
 
-	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
-		Symbol sym = table.lookup(identifier);
-		assert(sym.mut == Mutability.VAR);
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
+	Symbol sym = table.lookup(identifier);
 
-		ArrayList<Byte> exprCode = expression.compile(table);
-		exprCode.add((byte)54); // 0x36, istore
-		exprCode.add((byte)sym.index); // load from index
-
-		return exprCode;
-	}
+	ArrayList<Byte> code = expression.compile(table);
+	code.addAll(sym.storeInstructions());
+	return code;
+    }
 }
 
 class IfStmt implements Stmt {
@@ -795,7 +870,7 @@ class IfStmt implements Stmt {
 		false_case = fa;
 	}
 
-	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 		ArrayList<Byte> condCode = condition.compile(table);
 		ArrayList<Byte> true_code = true_case.compile(table);
 		ArrayList<Byte> false_code = null;
@@ -864,7 +939,7 @@ class WhileStmt implements Stmt {
     statement = s;
   }
 
-  public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
     ArrayList<Byte> conditionBC = condition.compile(table);
     ArrayList<Byte> statementBC = statement.compile(table);
 
@@ -920,10 +995,10 @@ class PrintStmt implements Stmt {
 		expression = e;
 	}
 
-	public ArrayList<Byte> compile(ILookup table) throws UndefinedException {
+    public ArrayList<Byte> compile(ILookup table) throws UndefinedException, LWertException, WrongParametersException, RWertException {
 		ArrayList<Byte> res = expression.compile(table);
 		res.add((byte) 184);
-		int printIdx = table.lookupFunctionIndex("print");
+		int printIdx = table.lookupFunctionIndex("print", 1);
 		byte upper_byte = (byte) (printIdx >> 8);
 		byte lower_byte = (byte) (printIdx & 0xFF);
 		res.add(upper_byte);
@@ -1305,7 +1380,7 @@ Procedure procedure():
     RoutineBlock rb;
 }
 {
-    (<VOID> ident=<IDENT> "(" (params=parameters())? ")" "{" rb=routineBlock() "}" {
+    (<VOID> ident=<IDENT> "(" (params=parameters())? ")" "{" rb=routineBlock() <RETURN> ";" "}" {
 	return new Procedure(ident.image, params, rb);
     })
 }
