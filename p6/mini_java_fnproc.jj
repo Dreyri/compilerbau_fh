@@ -323,8 +323,8 @@ class SymbolTable implements ILookup {
 	// if there's no table already, create one
 	if (!functionSymbolTables.containsKey(fn.identifier)) {
 	    functionSymbolTables.put(fn.identifier,
-				     new FunctionSymbolTable(this, fn.identifier,
-							     fn.numberOfArguments()));
+				     new FunctionSymbolTable(this, fn.identifier, 0));
+							     //fn.numberOfArguments()));
 	    addFunction(fn);
 	}
 	else {

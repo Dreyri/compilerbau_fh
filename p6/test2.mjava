@@ -6,13 +6,14 @@ void c() {
 }
 
 func a() {
+    print(42);
     int m = 30;
     n = m - n;
     return(n);
 }
 
 func b(int n1, int n2) {
-    int n3 = 4;
+    int n3 = 3;
     n3 = n1 + n2;
     return(n3 + a());
 }
